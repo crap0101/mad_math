@@ -117,7 +117,7 @@ def prime_factors_i (num):
         yield num
 
 
-def totien (n):
+def totient (n):
     """Return the Euler's totient of *n*."""
     return sum(1 for x in range(1, n+1) if gcd(x, n) == 1)
 
