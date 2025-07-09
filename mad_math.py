@@ -38,6 +38,23 @@ def is_prime (x):
         a += 2
     return True
 
+
+def primes_from (n):
+    """Yield primes biggers than *n*."""
+    n += 1
+    if not n % 2:
+        n += 1
+    while True:
+        if is_prime(n):
+            yield n
+        n += 2
+
+
+def next_prime (n):
+    """Return the first prime number bigger than *n*."""
+    return next(primes_from(n))
+
+
 def mad_max (iterable, default=[], key=lambda x:x):
     """
     Return the biggest ITEMS from *iterable*.
@@ -120,6 +137,10 @@ def prime_factors_i (num):
 def totient (n):
     """Return the Euler's totient of *n*."""
     return sum(1 for x in range(1, n+1) if gcd(x, n) == 1)
+
+def totient_pairs (n):
+    """Return pairs of (x, n) in range (1, n+1) for which gcd(x, n) == 1."""
+    return list((x, n) for x in range(1, n+1) if gcd(x, n) == 1)
 
 
 ###################### TODO: tests
