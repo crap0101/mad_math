@@ -23,6 +23,13 @@ from math import gcd, sqrt
 from operator import mul
 from random import shuffle
 
+def dec2bin(n):
+    """return a bit-string representation of *n*."""
+    b = [str(n & 1)]
+    while (n := n >> 1):
+        b.append(str(n & 1))
+    return ''.join(map(str, reversed(b)))
+
 
 def is_prime (x):
     """Return True if *x* is a prime number, False otherwise."""
@@ -139,7 +146,7 @@ def totient (n):
     return sum(1 for x in range(1, n+1) if gcd(x, n) == 1)
 
 def totient_pairs (n):
-    """Return pairs of (x, n) in range (1, n+1) for which gcd(x, n) == 1."""
+    """Return pairs of (x, n) in range (x=1, x=n+1) for which gcd(x, n) == 1."""
     return list((x, n) for x in range(1, n+1) if gcd(x, n) == 1)
 
 
@@ -152,7 +159,7 @@ def _test_primes():
                 == reduce(mul, prime_factors(i))), f'FAIL [factors]: {i}'
         for f in factors:
             assert is_prime(f) == True, f'FAIL: is_prime({f})'
-            assert is_prime(f + 7) == False, f'FAIL: is_prime({f+13})'
+            assert is_prime(f + 7) == False, f'FAIL: is_prime({f+7})'
     return True
 
 def _test_max():
@@ -167,7 +174,12 @@ def _test_max():
     assert lmax[0] == limit - 1, f'FAIL: mad_max: not really the max!'
     return True
 
+def _test_bin():
+    for i in range(10000):
+        assert bin(i)[2:] == dec2bin(i)
+    return True
 
 if __name__ == '__main__':
     _test_primes() and print('Test is_prime|prime_factors|prime_factors_dict|prime_factors_i: OK')
     _test_max() and print('Test mad_max: OK')
+    _test_bin() and print('Test dec2bin: OK')
