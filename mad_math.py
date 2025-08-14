@@ -89,6 +89,34 @@ def mad_max (iterable, default=[], key=lambda x:x):
     return founds
 
 
+def perc (value, perc, fun=lambda n:n):
+    """
+    value => a number
+    perc  => the requested percentage of $value to get
+    fun   => a callable to be applied to the result
+             (like int(), math.floor(), ...).
+             Default to the identity function.
+    """
+    x = perc * value / 100
+    return fun(x)
+
+
+def in_perc_range (num, value, perc_value, fun=lambda n:n):
+    """
+    Returns True if $num is in the ±$perc_value range of $value.
+    >>> in_perc_range(110, 100, 10)
+    True
+    >>> in_perc_range(111, 100, 10)
+    False
+    >>> in_perc_range(90, 100, 10)
+    True
+    >>> in_perc_range(89, 100, 10)
+    False
+    """
+    x = perc(value, perc_value, fun)
+    return num >= (value - x) and num <= (value + x)
+
+
 def prime_factors (n):
     """Return a list of prime factors of *n*."""
     lst = []
@@ -169,7 +197,7 @@ def _test_max():
     shuffle(l2)
     l1.extend(l2)
     lmax = mad_max(l1)
-    assert len(lmax) == 2, f'FAIL: mad_max: wrong len|'
+    assert len(lmax) == 2, f'FAIL: mad_max: wrong len!'
     assert len(set(lmax)) == 1, f'FAIL: mad_max: values differs!'
     assert lmax[0] == limit - 1, f'FAIL: mad_max: not really the max!'
     return True
@@ -179,7 +207,18 @@ def _test_bin():
         assert bin(i)[2:] == dec2bin(i)
     return True
 
+def _test_perc():
+    for i in range(11):
+        assert True == in_perc_range(100+i, 100, 10), f'FAIL: in_per_range: {(100+i,100,10)}'
+        assert False == in_perc_range(111+i, 100, 10), f'FAIL: in_per_range: {(111+i,100,10)}'
+        assert True == in_perc_range(90+i, 100, 10), f'FAIL: in_per_range: {(90+i,100,10)}'
+        assert False == in_perc_range(89-i, 100, 10), f'FAIL: in_per_range: {(89-i,100,10)}'
+    assert True == in_perc_range(80, 100, 20), f'FAIL: in_per_range: {(80,100,20)}'
+    assert True == in_perc_range(40, 50, 20), f'FAIL: in_per_range: {(40,50,20)}'
+    return True
+
 if __name__ == '__main__':
     _test_primes() and print('Test is_prime|prime_factors|prime_factors_dict|prime_factors_i: OK')
     _test_max() and print('Test mad_max: OK')
     _test_bin() and print('Test dec2bin: OK')
+    _test_perc() and print('Test in_perc_range: OK')
