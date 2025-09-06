@@ -21,7 +21,18 @@ from collections import defaultdict
 from functools import reduce
 from math import gcd, sqrt
 from operator import mul
-from random import shuffle
+
+
+def avg (seq):
+    """Get the average of $seq"""
+    tot = 0
+    for n, v in enumerate(seq, 1):
+        tot += v
+    try:
+        return tot / n
+    except UnboundLocalError:
+        return 0
+
 
 def dec2bin(n):
     """return a bit-string representation of *n*."""
@@ -29,6 +40,30 @@ def dec2bin(n):
     while (n := n >> 1):
         b.append(str(n & 1))
     return ''.join(map(str, reversed(b)))
+
+
+def decimal_threshold (n, precision=4):
+    """To consider equal a number $n and its
+    integral value under a certain $precision."""
+    exp = 10 ** precision
+    n = abs(n)
+    r =  (n - int(n)) * exp
+    return True if (n - int(n)) * exp < 1 else False
+
+
+def eqd (a, b, delta, precision=4):
+    """
+    Return True if number $a and $b are equals considered
+    the given $delta and $precision.
+    Raise ValueError for $precision values < 0 (default is 4).
+    $precision is truncated to the nearest integral toward 0.
+    """
+    if precision < 0:
+        raise 
+    a = abs(a)
+    b = abs(b)
+    exp = 10 ** int(precision)
+    return (abs((a - b) * exp) <= abs(delta * exp)) 
 
 
 def is_prime (x):
@@ -60,33 +95,6 @@ def primes_from (n):
 def next_prime (n):
     """Return the first prime number bigger than *n*."""
     return next(primes_from(n))
-
-
-def mad_max (iterable, default=[], key=lambda x:x):
-    """
-    Return the biggest ITEMS from *iterable*.
-    *default* specifies an object to return if
-    the provided iterable is empty.
-    *key* is a callable applied on every item, the results
-    of key(item) is used for the comparison (default to
-    the identity function).
-    """
-    iterable = iter(iterable)
-    founds = []
-    try:
-        first = next(iterable)
-        max = key(first)
-        founds.append(first)
-    except StopIteration:
-        return default
-    for item in iterable:
-        this = key(item)
-        if this > max:
-            max = this
-            founds = [item]
-        elif max == this:
-            founds.append(item)
-    return founds
 
 
 def perc (value, perc, fun=lambda n:n):
@@ -173,12 +181,21 @@ def totient (n):
     """Return the Euler's totient of *n*."""
     return sum(1 for x in range(1, n+1) if gcd(x, n) == 1)
 
+
 def totient_pairs (n):
     """Return pairs of (x, n) in range (x=1, x=n+1) for which gcd(x, n) == 1."""
     return list((x, n) for x in range(1, n+1) if gcd(x, n) == 1)
 
 
 ###################### TODO: tests
+
+def _test_avg():
+    assert avg([]) == 0, f'FAIL: avg([])'
+    assert avg([0]) == 0, f'FAIL: avg([0])'
+    assert avg([1]) == 1, f'FAIL: avg([1])'
+    assert avg([0, 10]) == 5, f'FAIL: avg([0, 10])'
+    return True
+
 def _test_primes():
     for i in range(2, 100000):
         factors = prime_factors(i)
@@ -188,18 +205,6 @@ def _test_primes():
         for f in factors:
             assert is_prime(f) == True, f'FAIL: is_prime({f})'
             assert is_prime(f + 7) == False, f'FAIL: is_prime({f+7})'
-    return True
-
-def _test_max():
-    limit = 10000
-    l1 = list(range(1, limit))
-    l2 = l1.copy()
-    shuffle(l2)
-    l1.extend(l2)
-    lmax = mad_max(l1)
-    assert len(lmax) == 2, f'FAIL: mad_max: wrong len!'
-    assert len(set(lmax)) == 1, f'FAIL: mad_max: values differs!'
-    assert lmax[0] == limit - 1, f'FAIL: mad_max: not really the max!'
     return True
 
 def _test_bin():
@@ -217,8 +222,47 @@ def _test_perc():
     assert True == in_perc_range(40, 50, 20), f'FAIL: in_per_range: {(40,50,20)}'
     return True
 
-if __name__ == '__main__':
+def _test_threshold():
+    n = 1.00005
+    for i in range(5):
+        assert True == decimal_threshold(n, i), f'FAIL: decimal_threshold({n}{i})'
+    for i in range(5, 8):
+        assert False == decimal_threshold(n, i), f'FAIL: decimal_threshold({n}{i})'
+    return True
+
+def _test_eqd():
+    from random import randint
+    tuples = [
+        (False, 22, 24, 1),
+        (True, 22, 23, 1),
+        (True, 22, 23, 3),
+        (False, 22.009,22.007,0.001),
+        (True, 22.009,22.007,0.002),
+        (True, 22.009,22.007,0.003),
+    ]
+    for i in range(10,100, 13):
+        a = randint(i, i+100) / randint(2, i-1)
+        b = randint(i, i+100) / randint(2, i-1)
+        delta = a - b
+        assert True == eqd(a, b, delta), f'FAIL: eqd({a}, {b}, {delta})'
+    assert True == eqd(1.0002, 1.0010, 0.8), f'FAIL: eqd({a}, {b}, {delta})'
+    for r, a, b, d in tuples:
+        assert r == eqd(a, b, d), f'FAIL: eqd({a}, {b}, {d})'
+    return True
+
+def _run_tests():
+    _test_avg() and print('Test avg: OK')
     _test_primes() and print('Test is_prime|prime_factors|prime_factors_dict|prime_factors_i: OK')
-    _test_max() and print('Test mad_max: OK')
     _test_bin() and print('Test dec2bin: OK')
     _test_perc() and print('Test in_perc_range: OK')
+    _test_threshold() and print('Test decimal_threshold: OK')
+    _test_eqd() and print('Test eqd: OK')
+
+if __name__ == '__main__':
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument('-t', '--test', dest='test', action='store_true',
+                 help='Run tests.')
+    args = p.parse_args()
+    if args.test:
+        _run_tests()
