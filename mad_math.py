@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # Some math utilities
 
-# Copyright (C) 2025  Marco Chieppa | crap0101
+# Copyright (C) 2025-2026  Marco Chieppa | crap0101
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
