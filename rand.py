@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Some statistical utilities
+# Some rand utilities
 
 # Copyright (C) 2025-2026  Marco Chieppa | crap0101
 
@@ -18,9 +18,9 @@
 # along with this program; if not see <http://www.gnu.org/licenses/>  
 
 """
-Statistical stuff.
+Randomical stuff.
 
-HAS_SYSTEMRANDOM is True when your system supports random.SystemRandom
+HAS_SYSTEMRANDOM is True if your system supports random.SystemRandom
 
 """
 import math
