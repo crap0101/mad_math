@@ -20,12 +20,13 @@
 from collections import defaultdict
 from collections.abc import Sequence, ItemsView
 import math
+import operator
 import random
 from typing import Generic
 #
 import inspect
 # local imports
-from mad_math import rand
+import rand
 
 #############
 # some defs #
@@ -106,39 +107,62 @@ def standard_error (data: Sequence[Number, ...],
 # for grouped data #
 ####################
 
-def autogroup (data: Sequence[Number, ...]|None,
-               chunks: None|Number = None,
-               minvalue: None|Number = None,
-               maxvalue: None|Number = None) -> Sequence[Sequence[Number,Number], ...]:
+def autogroup_perc_chunks (data_length: Number, perc: Number = 20) -> Number:
     """
-    Returns class intervals for $data in n $chunks from $minvalue to $maxvalue.
+    Return the number of chunks to be used with the autogroup function based on
+    the $data_length to make sure that each chunks contains at least $perc % values.
+    >>> autogroup_perc_chunks(50)
+    5
+    >>> autogroup_perc_chunks(100)
+    5
+    >>> autogroup_perc_chunks(100, 50)
+    2
+    >>> autogroup_perc_chunks(100, 60)
+    1
+    >>> autogroup_perc_chunks(100, 1)
+    100
+    >>> autogroup_perc_chunks(100, 30)
+    3
+    """
+    if perc < 1 or perc > 100:
+        raise ValueError(f"wrong percentage value: {perc}")
+    chunks = int(data_length / (data_length * (perc / 100)))
+    if chunks < 1:
+        raise ValueError("not enough data for make chunks")
+    return chunks
+
+def autogroup (chunks: Number,
+               minvalue: Number,
+               maxvalue: Number,
+               overlap: bool = False) -> Sequence[Sequence[Number,Number], ...]:
+    """
+    Returns class intervals in N $chunks from $minvalue to $maxvalue.
     If the optional arguments are None, some values are extracted from *data* and other guessed.
-    $data can also be None, in which case the other arguments must be provided (raises ValueError otherwise).
+    $data can also be absent, in which case the other arguments must be provided (raises ValueError otherwise).
+    $overlap (default: False) can be used for build overlapping intervals, e.g.
+        >>> autogroup(5,0,50)
+        [(0, 10), (11, 21), (22, 32), (33, 43), (44, 50)]
+        >>> autogroup(5,0,50,True)
+       [(0, 10), (10, 20), (20, 30), (30, 40), (40, 50)]
     """
-    if data is None and None in (chunks, minvalue, maxvalue):
-        raise ValueError("not enought argument or of the wrong type")
-    if chunks is None:
-        ld = len(data)
-        chunks = int(ld / (ld * .2))
-        if chunks < 1:
-            raise ValueError("can't make chunks from data")
-    if minvalue is None:
-        minvalue = min(data)
-    if maxvalue is None:
-        maxvalue = max(data)
+    if minvalue >= maxvalue:
+        raise ValueError(f"minvalue >= maxvalue: ({minvalue} >= {maxvalue})")
+    if (maxvalue - minvalue) < chunks:
+        raise ValueError("not enough values for make intervals")
     q = maxvalue - minvalue
     nc = int(q / chunks)
+    if nc < 1:
+        raise ValueError(f"can't make chunks from this data length")
+    overlap = 0 if overlap else 1
     classes = []
     while minvalue < maxvalue:
         if minvalue + nc >= maxvalue:
             classes.append((minvalue, maxvalue))
             break
         else:
-            classes.append((minvalue, minvalue + nc - 1))
-            minvalue += nc
+            classes.append((minvalue, minvalue + nc))
+            minvalue += nc + overlap
     return classes
-    #XXX[1]: see othersXXX[1]: use "< imax" for a canonical intervals representation? -- in IntervalDict:
-    #     make class range e.g. [(0,10),(10,20),(20,30),...] ? subsequently excluding the upper value?
 
 class IntervalError(Exception):
     """Base error class for IntevalDict objects."""
@@ -155,15 +179,35 @@ class IntervalDict:
     def __init__ (self,
                   intervals: Sequence[Sequence[Number,Number], ...] = ((float('-inf'), float('+inf'))),
                   data: None|Sequence[Number, ...] = None,
-                  trim : bool = False):
+                  trim : bool = False,
+                  overlap: bool = False):
         """
         $intervals is a sequence of (min, max) pairs, filled with the optional values from $data.
         If $trim is True, ignores values from $data which don't fit in the interval, otherwise raises a IntervalError.
-        >>> IntervalDict(((0,10),(11,30)), range(5,40,4), True)
-        {(0, 10): [5, 9], (11, 30): [13, 17, 21, 25, 29]}
+        $overlap (default: False) has the same meaning as in autogroup(), so set it to True
+        when using overlapping intervals.
+        >>> i = IntervalDict([(0,10),(10,20)], range(1,40,3))
+        Traceback (most recent call last)
+        ...
+        IntervalError: value "22" doesn't belong to any interval
+        >>> i = IntervalDict([(0,10),(10,20)], range(1,40,3), trim=True)
+        >>> i
+        {(0, 10): [1, 4, 7, 10], (10, 20): [13, 16, 19]}
+        >>> i
+        {(0, 10): [1, 4, 7, 10, 10], (10, 20): [13, 16, 19]}
+        >>> i = IntervalDict([(0,10),(10,20)], range(1,40,3), trim=True, overlap=True)
+        >>> i
+        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19]}
+        >>> i +=10
+        >>> i
+        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19, 10]}
         """
         self.intervals = tuple(intervals)
         self._dict = {tuple(i):[] for i in self.intervals}
+        if overlap is True:
+            self._overlap_cmp = operator.lt
+        else:
+            self._overlap_cmp = operator.le
         if data:
             self.extend(data, not bool(trim))     
 
@@ -178,7 +222,7 @@ class IntervalDict:
         (5, 8)
         """
         for (imin, imax), seq in self._dict.items():
-            if value >= imin and value <= imax: #XXX[1]: use "< imax" for a canonical intervals representation?
+            if value >= imin and self._overlap_cmp(value, imax):
                 return tuple(seq)
         raise IntervalError(f"value '{value}' not in intervals")
 
@@ -240,7 +284,7 @@ class IntervalDict:
         IntervalError: value '213' not in intervals
         """
         for (imin, imax), _ in self._dict.items():
-            if value >= imin and value <= imax: #XXX[1]: use "< imax" for a canonical intervals representation?
+            if value >= imin and self._overlap_cmp(value, imax):
                 break
         else:
             raise IntervalError(f"value '{value}' not in intervals")
@@ -274,7 +318,7 @@ class IntervalDict:
         IntervalError: value "99" doesn't belong to any interval
         """
         for (imin, imax), _ in self._dict.items():
-            if value >= imin and value <= imax: #XXX[1]: use "< imax" for a canonical intervals representation?
+            if value >= imin and self._overlap_cmp(value, imax):
                 self._dict[(imin, imax)].append(value)
                 return self
         raise IntervalError(f'''value "{value}" doesn't belong to any interval''')
@@ -763,7 +807,7 @@ if __name__ == '__main__':
         gprint_info(population, GDTYPE.basic, False, pop_prefix, jb)
         data = make_data_freq(population)
         gprint_info(data, GDTYPE.freq, False, pop_prefix, jb)
-        pop_classes = autogroup(population, 5, parsed.minval, parsed.maxval)
+        pop_classes = autogroup(5, parsed.minval, parsed.maxval)
         data = IntervalDict(pop_classes, population)
         gprint_info(data, GDTYPE.interval, False, pop_prefix, jb)
         
@@ -778,7 +822,7 @@ if __name__ == '__main__':
             gprint_info(sample, GDTYPE.basic, True, sample_prefix, jb)
             data = make_data_freq(sample)
             gprint_info(data, GDTYPE.freq, False, sample_prefix, jb)
-            pop_classes = autogroup(sample, 5, parsed.minval, parsed.maxval)
+            pop_classes = autogroup(5, parsed.minval, parsed.maxval)
             data = IntervalDict(pop_classes, sample)
             gprint_info(data, GDTYPE.interval, False, sample_prefix, jb)
 
