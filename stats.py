@@ -65,6 +65,16 @@ def mean (group: Sequence[Number, ...]) -> Number:
     """$group's mean for ungrouped data."""
     return sum(group) / len(group)
 
+def median (data):
+    """
+    Returns the median of $data for ungrouped data, assuming data is a sorted sequence
+    supporting the __len__ and __getitem__ methods.
+    """
+    n = len(data)
+    if n & 1:
+        return data[int(n / 2)]
+    return (data[int(n / 2) - 1] + data[int(n / 2)]) / 2
+
 def _variance (mean: Number,
                data: Sequence[Number, ...],
                fromsample: bool) -> Number:
@@ -730,7 +740,7 @@ def gprint_info (data, dtype, issample=False, prefix=None, justify_by=None):
 
 def _test():
     # from the python doc:
-    from statistics import median_grouped, median
+    from statistics import median_grouped as s_median_grouped, median as s_media
     from collections import Counter
     demographics = Counter({
     25: 172,   # 20 to 30 years old
@@ -747,6 +757,7 @@ def _test():
     37.5
     '''
     # XXX+TODO: median, mode
+        
     def gmedian (data, **k):
         tot = sum(data.values()) / 2
         p = 0
@@ -755,10 +766,14 @@ def _test():
             if p >= tot:
                 return k
         raise ValueError("Not found")
+    print("median:", median((24, 34, 43, 50, 67, 78)))
+    print("median:", median((23, 34, 43, 54, 56, 67, 78)))
+    print("median:", median(list(demographics.elements())))
     print("gmedian:", gmedian(demographics))
     exit()
     
 if __name__ == '__main__':
+    if 1:_test()
     """
     At the moment, this module can be used as a script for examples purpose only...
     possibly TODO add code to read and manipulate data.
