@@ -716,7 +716,8 @@ def print_info (data, issample=False, prefix=None, justify_by=None):
         prefix = 'sample' if issample else 'population'
     jb = len(prefix) if justify_by is None else justify_by
     print('{:{}} mean: {:.2f} | variance: {:.2f} | st_dev: {:.2f} | st_err {:.2f} | min,max='.format(
-            prefix, jb, mean(data), variance(data, issample), standard_dev(data, issample), standard_error(data, issample)), min(data), max(data))
+            prefix, jb, mean(data), variance(data, issample),
+        standard_dev(data, issample), standard_error(data, issample)), min(data), max(data))
 
 def gprint_info (data, dtype, issample=False, prefix=None, justify_by=None):
     """Prints info for grouped data."""
@@ -724,9 +725,11 @@ def gprint_info (data, dtype, issample=False, prefix=None, justify_by=None):
         prefix = 'sample' if issample else 'population'
     jb = len(prefix) if justify_by is None else justify_by
     print('{:{}} mean: {:.2f} | variance: {:.2f} | st_dev: {:.2f} | st_err {:.2f} ({})'.format(
-            prefix, jb, gmean(data), gvariance(data, dtype, issample), gstandard_dev(data, dtype, issample), gstandard_error(data, dtype, issample), dtype))
+            prefix, jb, gmean(data), gvariance(data, dtype, issample),
+        gstandard_dev(data, dtype, issample), gstandard_error(data, dtype, issample), dtype))
 
 def _test():
+    # from the python doc:
     from statistics import median_grouped, median
     from collections import Counter
     demographics = Counter({
@@ -743,6 +746,7 @@ def _test():
     >>> round(median_grouped(data, interval=10), 1)
     37.5
     '''
+    # XXX+TODO: median, mode
     def gmedian (data, **k):
         tot = sum(data.values()) / 2
         p = 0
@@ -756,7 +760,7 @@ def _test():
     
 if __name__ == '__main__':
     """
-    At the moment, this module can be used as a script for examples pourpose only...
+    At the moment, this module can be used as a script for examples purpose only...
     possibly TODO add code to read and manipulate data.
     """
     TOTAL_POPULATION = 10000
@@ -795,8 +799,7 @@ if __name__ == '__main__':
     pop_prefix = f'[U] population ({parsed.population_size})'
     jb = max(len(pop_prefix), max(len(f'sample ({size})') for size in parsed.sample_size))
 
-    # doit
-    
+    # doit:
     population = get_pop(parsed.population_size, parsed.minval, parsed.maxval)
     print(f"*** population size = {parsed.population_size} | samples size = {parsed.sample_size} | min,max = {parsed.minval},{parsed.maxval}")
     print_info(population, False, pop_prefix, jb)
