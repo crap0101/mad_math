@@ -17,12 +17,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not see <http://www.gnu.org/licenses/>
 
-from collections import defaultdict
-from collections.abc import Sequence, ItemsView
+from collections import Counter, defaultdict
+from collections.abc import Callable, ItemsView, Sequence
+from enum import Enum
 import math
 import operator
 import random
-from typing import Generic
+from typing import Any, Generic
+
 #
 import inspect
 # local imports
@@ -33,6 +35,54 @@ import rand
 #############
 
 Number = float | int
+
+class CumFreqT(Enum):
+    lt = 0
+    gt = 1
+
+class StrCls(type):
+    """Pretty print class names."""
+    def __str__(self):
+        return self.name
+    __repr__ = __str__
+
+class GDTYPE:
+    """A class for managing grouped data types."""
+    __metaclass__ = Generic
+
+    class basic(metaclass=StrCls):
+        name = 'basic'
+        mean = ... # ugmean (later, undef her)
+        data2freq = ... # make_data_freq
+
+    class freq(metaclass=StrCls):
+        name = 'freq'
+        mean = ... # fgmean
+        data2freq = ... # lambda x: x
+
+    class interval(metaclass=StrCls):
+        name = 'interval'
+        mean = ... # igmean
+        data2freq = ... # freqs_from_intervals
+
+    def __class_getitem__(cls, item):
+        if item in ('basic', cls.basic):
+            return cls.basic
+        elif item in ('freq', cls.freq):
+            return cls.freq
+        elif item in ('interval', cls.interval):
+            return cls.interval
+        else:
+            raise TypeError(f"No such item '{item}'")
+
+
+class IntervalError(Exception):
+    """Base error class for IntevalDict objects."""
+    def __init__ (self, msg):
+        self.msg = msg
+        super().__init__(msg)
+    def __str__ (self):
+        return self.msg
 
 # ...also see below for GDTYPE
 
@@ -65,10 +115,14 @@ def mean (group: Sequence[Number, ...]) -> Number:
     """$group's mean for ungrouped data."""
     return sum(group) / len(group)
 
-def median (data):
+def median (data: Sequence):
     """
     Returns the median of $data for ungrouped data, assuming data is a sorted sequence
     supporting the __len__ and __getitem__ methods.
+    >>> median((24, 34, 43, 50, 67, 78))
+    46.5
+    >>> median((23, 34, 43, 54, 56, 67, 78))
+    54
     """
     n = len(data)
     if n & 1:
@@ -115,7 +169,7 @@ def standard_error (data: Sequence[Number, ...],
 
 ####################
 # for grouped data #
-####################
+###################
 
 def autogroup_perc_chunks (data_length: Number, perc: Number = 20) -> Number:
     """
@@ -147,8 +201,6 @@ def autogroup (chunks: Number,
                overlap: bool = False) -> Sequence[Sequence[Number,Number], ...]:
     """
     Returns class intervals in N $chunks from $minvalue to $maxvalue.
-    If the optional arguments are None, some values are extracted from *data* and other guessed.
-    $data can also be absent, in which case the other arguments must be provided (raises ValueError otherwise).
     $overlap (default: False) can be used for build overlapping intervals, e.g.
         >>> autogroup(5,0,50)
         [(0, 10), (11, 21), (22, 32), (33, 43), (44, 50)]
@@ -174,20 +226,13 @@ def autogroup (chunks: Number,
             minvalue += nc + overlap
     return classes
 
-class IntervalError(Exception):
-    """Base error class for IntevalDict objects."""
-    def __init__ (self, msg):
-        self.msg = msg
-        super().__init__(msg)
-    def __str__ (self):
-        return self.msg
 
 class IntervalDict:
     """
     Object for class intervals.
     """
     def __init__ (self,
-                  intervals: Sequence[Sequence[Number,Number], ...] = ((float('-inf'), float('+inf'))),
+                  intervals: Sequence[Sequence[Number,Number], ...] = (),
                   data: None|Sequence[Number, ...] = None,
                   trim : bool = False,
                   overlap: bool = False):
@@ -212,68 +257,14 @@ class IntervalDict:
         >>> i
         {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19, 10]}
         """
-        self.intervals = tuple(intervals)
-        self._dict = {tuple(i):[] for i in self.intervals}
-        if overlap is True:
+        self._dict = {tuple(i):[] for i in intervals}
+        self._overlap = bool(overlap)
+        if self._overlap is True:
             self._overlap_cmp = operator.lt
         else:
             self._overlap_cmp = operator.le
         if data:
             self.extend(data, not bool(trim))     
-
-    def __getitem__ (self, value: Number) -> Sequence[Number,Number]:
-        """
-        Returns the interval's values in which $value *may* belong or raises IntervalError.
-        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(40))
-        >>> i[15]
-        (12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30)
-        {(0, 10): [5, 8], (11, 30): [11, 14, 17, 20, 23]}
-        >>> i[7] # 7 is not in the interval's values, but can be. Use get_class to get the interval for existing values only.
-        (5, 8)
-        """
-        for (imin, imax), seq in self._dict.items():
-            if value >= imin and self._overlap_cmp(value, imax):
-                return tuple(seq)
-        raise IntervalError(f"value '{value}' not in intervals")
-
-    def get_class (self, value: Number) -> Sequence[Number,Number]:
-        """
-        Returns the class interval in which $value belong or raises IntervalError.
-        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(5,40,4))
-        >>> i
-        {(0, 11): [5, 9], (11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
-        >>> i.get_class(17)
-        (11, 30)
-        >>> i.get_class(7)
-        Traceback (most recent call last):
-        ...
-        IntervalError: value '7' not in interval
-        """
-        for cls, seq in self._dict.items():
-            if value in seq:
-                return cls
-        raise IntervalError(f"value '{value}' not in intervals")
-
-    def get_values (self, cls: Sequence[Number,Number]) -> Sequence[Number,...]:
-        """
-        Returns the values belonging to the class interval $cls or raises IntervalError.
-        >>> i = IntervalDict(((0,10),(11,30)), range(5,40,4), True)
-        >>> i
-        {(0, 10): [5, 9], (11, 30): [13, 17, 21, 25, 29]}
-        >>> i.get_class(15)
-        Traceback (most recent call last):
-        ...
-        IntervalError: value '15' not in intervals
-        >>> i.get_class(5)
-        (0, 10)
-        >>> i.get_values(i.get_class(5))
-        (5, 9)
-        """
-        target = tuple(cls)
-        for interval, seq in self._dict.items():
-            if tuple(interval) == target:
-                return tuple(seq)
-        raise IntervalError(f"class '{cls}' not found")
 
     def __delitem__ (self, value: Number) -> None:
         """
@@ -300,19 +291,27 @@ class IntervalDict:
             raise IntervalError(f"value '{value}' not in intervals")
         del self._dict[(imin, imax)]
 
-    def __iter__ (self):
-        """NotImplemented"""
-        raise NotImplementedError(f"{self.__class__.__name__} {inspect.getframeinfo(inspect.currentframe()).function}")
+    def __getitem__ (self, value: Number) -> Sequence[Sequence[Number,Number], Sequence[Number,...]]:
+        """
+        Returns the interval's class and values in which $value *may* belong or raises IntervalError.
+        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(0,40,4))
+        >>> i
+        {(0, 11): [0, 4, 8], (11, 30): [12, 16, 20, 24, 28], (31, 40): [32, 36]}
+        >>> i[7] # 7 is not in the interval's values, but can be. Use get_interval to get the interval for existing values only.
+        ((0, 11), (0, 4, 8))
+        >>> i[16]
+        ((11, 30), (12, 16, 20, 24, 28))
+        >>> i[99]
+        Traceback (most recent call last):
+        ...
+        IntervalError: value '99' not in intervals
+        """
+        for (imin, imax), seq in self._dict.items():
+            if value >= imin and self._overlap_cmp(value, imax):
+                return (imin, imax), tuple(seq)
+        raise IntervalError(f"value '{value}' not in intervals")
 
-    def __len__ (self) -> Number:
-        """Returns the number of intervals."""
-        return len(self._dict)
-
-    def length (self) -> Number:
-        """Returns the number of values in all the intervals."""
-        return sum(len(v) for v in self._dict.values())
-
-    def __iadd__ (self, value: Number) -> None:
+    def __iadd__ (self, value: Number):
         """
         Adds $value to it's belonging interval or raises IntervalError.
         >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 4))
@@ -332,6 +331,14 @@ class IntervalDict:
                 self._dict[(imin, imax)].append(value)
                 return self
         raise IntervalError(f'''value "{value}" doesn't belong to any interval''')
+
+    def __iter__ (self):
+        """NotImplemented"""
+        raise NotImplementedError(f"{self.__class__.__name__} {inspect.getframeinfo(inspect.currentframe()).function}")
+
+    def __len__ (self) -> Number:
+        """Returns the number of intervals."""
+        return len(self._dict)
 
     def __repr__ (self):
         return repr(self._dict)
@@ -359,7 +366,7 @@ class IntervalDict:
         if tuple(interval) in self._dict.keys():
             raise IntervalError(f'interval {interval} already present')
         self._dict[tuple(interval)] = list(values)
-        self._dict = dict(sorted(self._dict.items()))
+        self._dict = dict(sorted(self._dict.items())) #XXX+TODO: to sort when get smt only?
 
     def empty_interval (self, interval: Sequence[Number,Number]):
         """
@@ -417,9 +424,63 @@ class IntervalDict:
                         self.remove_value(value)
                     raise e
 
+    def get_interval (self, value: Number) -> Sequence[Number,Number]:
+        """
+        Returns the class interval in which $value belong or raises IntervalError.
+        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(5,40,4))
+        >>> i
+        {(0, 11): [5, 9], (11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
+        >>> i.get_interval(17)
+        (11, 30)
+        >>> i.get_interval(7)
+        Traceback (most recent call last):
+        ...
+        IntervalError: value '7' not in interval
+        """
+        for cls, seq in self._dict.items():
+            if value in seq:
+                return cls
+        raise IntervalError(f"value '{value}' not in intervals")
+
+    def get_values (self, cls: Sequence[Number,Number]) -> Sequence[Number,...]:
+        """
+        Returns the values belonging to the class interval $cls or raises IntervalError.
+        >>> i = IntervalDict(((0,10),(11,30)), range(5,40,4), True)
+        >>> i
+        {(0, 10): [5, 9], (11, 30): [13, 17, 21, 25, 29]}
+        >>> i.get_values((0,9))
+        Traceback (most recent call last):
+        ...
+        IntervalError: class '(0, 9)' not found
+        >>> i.get_interval(5)
+        (0, 10)
+        >>> i.get_values(i.get_interval(5))
+        (5, 9)
+        """
+        target = tuple(cls)
+        for interval, seq in self._dict.items():
+            if tuple(interval) == target:
+                return tuple(seq)
+        raise IntervalError(f"class '{cls}' not found")
+
+    @property
+    def intervals (self) -> Sequence[Sequence[Number,Number], ...]:
+        """The class intervals."""
+        return tuple(self._dict.keys())
+
     def items (self) -> ItemsView:
         """Returns a new view of the underling dictionary's items."""
         return self._dict.items()
+
+    @property
+    def length (self) -> Number:
+        """The number of values in all the intervals."""
+        return sum(len(v) for v in self._dict.values())
+
+    @property
+    def overlap (self) -> bool:
+        """A bool, if the IntervalDict is an overlapping ones or not."""
+        return self._overlap
 
     def remove_interval (self, interval: Sequence[Number,Number]) -> None:
         """
@@ -446,7 +507,7 @@ class IntervalDict:
             
     def remove_interval_by_value (self, value: Number) -> None:
         """
-        Removes the interval in which $value belong or raises IntervalError.
+        Removes the (first, obviously) interval in which $value belong or raises IntervalError.
         >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(5,40,4))
         >>> i
         {(0, 11): [5, 9], (11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
@@ -508,16 +569,143 @@ class IntervalDict:
         raise IntervalError(f"value '{value}' not in intervals")
 
 
-def make_data_intervals (data: Sequence[Number],
-                         intervals: Sequence[[Number,Number]]) -> IntervalDict:
+def cumulative_freq (data: Sequence,
+                     limit: Number|Sequence[Number,Number], # but can works with appropriates Any
+                     ftype:CumFreqT = CumFreqT.lt,
+                     cmpfunc: Callable[[Any,Any], Sequence[bool,Number]] = lambda x,y:(x<=y,x)) -> Number:
+    """
+    Returns the cumulative frequency for $data (a sequence supporting reversed()).
+    $data is assumed to be ordered.
+    $limit is the boundary's class interval for the cumulative count.
+    $ftype if the cumulative type:
+        CumFreqT.lt for the "lesser than" cumulative frequency (default), or
+        CumFreqT.gt for the "greater than" cumulative frequency
+    $cmpfunc can be any function accepting two parameter (1st, 2nd) where:
+        1st: is the item of the sequence
+        2nd: is $limit
+    and returning a pair of (a, b) where:
+        a: (bool) indicating succerful comparison
+        b: a value which will be added to the cumulative frequency
+    $cmpfunc by default returns (1st <= 2nd, 1st).
+    Note: limit is mandatory, since getting the cumulative freqs for all the sequence
+          is even simpler and can be done with specific code for the particular case.
+          Anyway, the total cumulative freq can be computed, for example, as:
+          >>> d
+          [(1, 10), (2, 21), (3, 20), (4, 26), (5, 20), (6, 4)]
+          >>> cumulative_freq(d,None,cmpfunc=lambda x,y:(True, x[1]))
+          101
+    >>> data = list(range(10))
+    >>> data
+    [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    >>> cumulative_freq(data, 5)
+    10
+    >>> cumulative_freq(data, 5, CumFreqT.gt, lambda x,y:(x>y,x))
+    30
+    >>> i = IntervalDict([(0,5),(5,10),(10,15)], range(12))
+    >>> i
+    {(0, 5): [0, 1, 2, 3, 4, 5], (5, 10): [6, 7, 8, 9, 10], (10, 15): [11]}
+    >>> cumulative_freq(i.items(), (5,10), cmpfunc=lambda x,y:(x[0]<y,len(x[1])))
+    6
+    >>> cumulative_freq(i.items(), (5,10), cmpfunc=lambda x,y:(x[0]<=y,len(x[1]))) # (5, 10) inclusive
+    11
+    >>> cumulative_freq(i.items(), None, cmpfunc=lambda x,y:(True,len(x[1]))) # all
+    12
+    >>> d = sorted(make_data_freq([0,2,2,0,4,4,10,10,10,1,1,1,1,0,10,10,1,1]))
+    >>> d
+    [(0, 3), (1, 6), (2, 2), (4, 2), (10, 5)]
+    >>> cumulative_freq(d, 4, cmpfunc=lambda x,y:(x[0]<y,x[1])) # until (4,2) excluded
+    11
+    >>> cumulative_freq(d, 4, cmpfunc=lambda x,y:(x[0]<=y,x[1])) # until (4,2) included
+    13
+    >>> cumulative_freq(d, (4,2), cmpfunc=lambda x,y:(x<=y,x[1])) # using directly the item for comparison
+    13
+    >>> cumulative_freq(d, 4, CumFreqT.gt, cmpfunc=lambda x,y:(x[0]>y,x[1]))
+    5
+    >>> d = [(1, 10), (2, 21), (3, 20), (4, 26), (5, 20), (6, 4)]
+    >>> cumulative_freq(d,3,cmpfunc=lambda x,y:(x[0]<y,x[1]))
+    31
+    >>> cumulative_freq(d,3,cmpfunc=lambda x,y:(x[0]<=y,x[1]))
+    51
+    """ 
+    freq = 0
+    if not isinstance(ftype, CumFreqT):
+        raise ValueError(f"wrong value for ftype: {ftype}")
+    if ftype is CumFreqT.gt:
+        data = reversed(data)
+    for item in data:
+        ok, value = cmpfunc(item, limit)
+        if ok:
+            freq += value
+        else:
+            break
+    return freq
+
+def freqs_from_intervals (data: IntervalDict) -> Sequence[Sequence[Number,Number], ...]:
+    """
+    Return frequencies from interval data.
+    >>> make_data_intervals([0,1,2], [(0,5),(6,10)])
+    {(0, 5): [0, 1, 2], (6, 10): []}
+    >>> freqs_from_intervals(make_data_intervals([0,1,2], [(0,5),(6,10)]))
+    [(2.5, 3), (8.0, 0)]
+    """
+    freqs = []
+    for (imin, imax), values in data.items():
+        freqs.append((((imax + imin) / 2 ), len(values)))
+    return freqs
+
+def freqs_get_class (data: Sequence[Sequence[Number,Number], ...],
+                     cls: Any) -> Sequence[Any, Any]:
+    """
+    Returns the (class, freq) pair belonging to $cls from the the frequencies sequence $data.
+    Raise ValueError when not found.
+    >>> dm
+    [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
+    >>> freqs_get_class(dm, 3)
+    (3, 2)
+    >>> freqs_get_class(dm, 13)
+    Traceback (most recent call last):
+    ...
+    ValueError: class 13 not found
+    """
+    for c, f in data:
+        if c == cls:
+            return (c, f)
+    raise ValueError(f"class {cls} not found")
+
+def make_data_intervals (data: Sequence[Number, ...],
+                         intervals: Sequence[Sequence[Number,Number], ...],
+                         trim=False,
+                         overlap=False) -> IntervalDict:
     """
     Returns an IntervalDict with the given $intervals fillen with values from $data.
+    $trim and $overlap has the same meaning as in in the IntervalDict constructor.
     >>> make_data_intervals([0,1,2], [(0,5),(6,10)])
     {(0, 5): [0, 1, 2], (6, 10): []}
     """
-    d = IntervalDict(intervals)
+    d = IntervalDict(intervals, trim=trim, overlap=overlap)
     for value in data:
         d += value
+    return d
+
+def make_data_intervals_from_freq (data: Sequence[Sequence[Number,Number], ...],
+                                   size: Number,
+                                   trim=False,
+                                   overlap=False) -> IntervalDict:
+    """
+    Returns an IntervalDict from $data frequencies with class intervals of $size.
+    $data is a sequence of pair in the the form of (lower_class_value, frequency_value), so
+    a class intervals will be, e.g. (lower_class_value, lower_class_value + $size),
+    while its values ​​are the class midpoint (as many as frequency_value).
+    $trim and $overlap has the same meaning as in in the IntervalDict constructor.
+    NOTE: this is mainly a convenience function for some operations
+    (fake values can be changed afterwards, anyway).
+    >>> make_data_intervals_from_freq([(0,3),(5,2),(10,5)], 5, overlap=True)
+    {(0, 5): [2.5, 2.5, 2.5], (5, 10): [7.5, 7.5], (10, 15): [12.5, 12.5, 12.5, 12.5, 12.5]}
+    """
+    d = IntervalDict(trim=trim, overlap=overlap)
+    for class_lower, amount in data:
+        class_upper = class_lower + size
+        d.add_interval([class_lower, class_upper], [(class_lower + class_upper) / 2] * amount)
     return d
 
 def make_data_freq (data: Sequence[Number]) -> Sequence[[Number,Number]]:
@@ -532,18 +720,77 @@ def make_data_freq (data: Sequence[Number]) -> Sequence[[Number,Number]]:
         freqd[value] += 1
     return list(freqd.items())
 
-def freqs_from_intervals (data: IntervalDict) -> Sequence[[Number,Number]]:
+def _median_class_and_cumfreq (data: Sequence[Sequence[Any,Any], ...],
+                              percentile: Number = 50, vfunc=lambda x:x) -> Sequence[Any,Number]:
     """
-    Return frequencies from interval data.
-    >>> make_data_intervals([0,1,2], [(0,5),(6,10)])
-    {(0, 5): [0, 1, 2], (6, 10): []}
-    >>> freqs_from_intervals(make_data_intervals([0,1,2], [(0,5),(6,10)]))
-    [(2.5, 3), (8.0, 0)]
+    Returns the median class and the relative cumulative frequence of $data at the target $percentile.
+    $data is a sequence of (class, values_or_freq) pairs, while $vfunc is a function to be applied to
+    values_or_freq before the computation of the cumulative frequence (default to the identity function).
+    NOTE: test: not considering if observations are even or odd.
     """
-    freqs = []
-    for (imin, imax), values in data.items():
-        freqs.append((((imax + imin) / 2 ), len(values)))
-    return freqs
+    if (percentile <= 0) or (percentile > 100):
+        raise ValueError(f"wrong percentile value: {percentile}")
+    target_value = sum(vfunc(v) for _, v in data) * percentile / 100
+    cumf = 0
+    for cls, values in data:
+        cumf += vfunc(values)
+        if cumf >= target_value:
+            return cls, cumf
+    raise ValueError("median class not found")
+
+def median_class_and_cumfreq (data: Sequence[Sequence[Any,Any], ...],
+                              percentile: Number = 50, vfunc=lambda x:x) -> Sequence[Any,Number]:
+    """
+    Returns the median class and the relative cumulative frequence of $data at the target $percentile.
+    $data is a sequence of (class, values_or_freq) pairs, while $vfunc is a function to be applied to
+    values_or_freq before the computation of the cumulative frequence (default to the identity function).
+    >>> dm
+    [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
+    >>> median_class_and_cumfreq(dm)
+    (2, 14)
+    >>> i = IntervalDict([(0,5),(5,10),(10,15)], [1,1,2,4,5,6,9,10,11,13], overlap=True)
+    >>> i
+    {(0, 5): [1, 1, 2, 4], (5, 10): [5, 6, 9], (10, 15): [10, 11, 13]}
+    >>> median_class_and_cumfreq(i.items(), vfunc=lambda x:len(x))
+    ((5, 10), 7)
+    """
+    if (percentile <= 0) or (percentile > 100):
+        raise ValueError(f"wrong percentile value: {percentile}")
+    tot = sum(vfunc(v) for _, v in data)
+    if tot & 1:
+        target_value = tot * percentile / 100
+    else:
+        target_value = ((tot * percentile / 100) + (1 + (tot * percentile / 100))) / 2
+    cumf = 0
+    for cls, values in data:
+        cumf += vfunc(values)
+        if cumf >= target_value:
+            return cls, cumf
+    raise ValueError("median class not found")
+
+def median_class_and_cumfreq_at_value (data: Sequence[Sequence[Any,Any], ...],
+                              target_freq: Number, vfunc=lambda x:x) -> Sequence[Any,Number]:
+    """
+    Returns the median class and the relative cumulative frequence of $data at the $target_freq point.
+    $data is a sequence of (class, values_or_freq) pairs, while $vfunc is a function to be applied to
+    values_or_freq before the computation of the cumulative frequence (default to the identity function).
+    >>> dm
+    [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
+    >>> median_class_and_cumfreq(dm)
+    (2, 14)
+    >>> median_class_and_cumfreq_at_value(dm, 14)
+    (2, 14)
+    >>> median_class_and_cumfreq_at_value(dm, 2)
+    (1, 7)
+    >>> median_class_and_cumfreq_at_value(dm, 19)
+    (4, 19)
+    """
+    cumf = 0
+    for cls, values in data:
+        cumf += vfunc(values)
+        if cumf >= target_freq:
+            return cls, cumf
+    raise ValueError("median class (at value) not found")
 
 # means:
 
@@ -560,7 +807,7 @@ def ugmean (data: Sequence[Number]) -> Number:
     #freqd = make_data_freq(data)
     #return sum(i * f for i, f in freqd.items()) / sum(freqd.values())
 
-def fgmean (data: Sequence[[Number,Number]]) -> Number:
+def fgmean (data: Sequence[Sequence[Number,Number], ...]) -> Number:
     """
     $data's mean for grouped data in (value, freq) format (using the Direct Method).
     >>> i
@@ -593,6 +840,7 @@ def igmean (data: IntervalDict) -> Number:
 def gmean (data, dtype=None) -> Number:
     """
     Try guessing data type for the correct mean func, or raise TypeError.
+    $data can be an IntervalDict, a sequence of (value, freq) pairs o a sequence of values.
     >>> data = list(sorted(chain(*[range(20),range(1,20,3), range(1,20,2),[0,1,2]*5])))
     >>> data
     [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 4, 4, 5, 5, 6,
@@ -620,45 +868,78 @@ def gmean (data, dtype=None) -> Number:
                 dtype = GDTYPE.freq
     return GDTYPE[dtype].mean(data)
 
-class StrCls(type):
-    """Pretty print class names."""
-    def __str__(self):
-        return self.name
-    __repr__ = __str__
+GDTYPE.basic.mean = ugmean
+GDTYPE.basic.data2freq = make_data_freq
+GDTYPE.freq.mean = fgmean
+GDTYPE.freq.data2freq = lambda x: x
+GDTYPE.interval.mean = igmean
+GDTYPE.interval.data2freq = freqs_from_intervals
 
-class GDTYPE:
-    """A class for managing grouped data types."""
-    __metaclass__ = Generic
+# median:
 
-    class basic(metaclass=StrCls):
-        name = 'basic'
-        mean = ugmean
-        data2freq = make_data_freq
+def fmedian (data: Sequence[Sequence[Number,Number], ...]) -> Number:
+    """
+    Returns the median (for grouped data) from the discrete frequency distribution $data,
+    an already sorted sequence or (value, freq) pairs.
+    >>> data = [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
+    >>> fmedian(data)
+    2.0
+    >>> freqs_get_class(dm, fmedian(dm))
+    (2, 7)
+    """
+    counter = Counter()
+    for c, f in data:
+        counter[c] = f
+    return median(list(counter.elements()))
 
-    class freq(metaclass=StrCls):
-        name = 'freq'
-        mean = fgmean
-        data2freq = lambda x: x
+def gmedian (data: IntervalDict) -> Number:
+    """
+    Returns the median (for grouped data) from the Intervaldict $data.
+    >>> i = make_data_intervals_from_freq([(0,3),(5,2),(10,5)], 5, overlap=True)
+    >>> i
+    {(0, 5): [2.5, 2.5, 2.5], (5, 10): [7.5, 7.5], (10, 15): [12.5, 12.5, 12.5, 12.5, 12.5]}
+    >>> gmedian(i)
+    10.0
+    >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
+    >>> i
+    {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
+    >>> gmedian(i)
+    8.75
+    >>> d = Counter({ # adapted from the python doc
+    ...         20: 172,   # 20 to 30 years old
+    ...         30: 484,   # 30 to 40 years old
+    ...         40: 387,   # 40 to 50 years old
+    ...         50:  22,   # 50 to 60 years old
+    ...         60:   6,   # 60 to 70 years old
+    ...     })
+    >>> i = make_data_intervals_from_freq(d.items(), 10, overlap=True)
+    >>> m = gmedian(i)
+    >>> m
+    37.510330578512395
+    >>> i[m]
+    ((30, 40), (35.0, 35.0, 35.0, 35.0, ...))
+    >>> cls, freqs = ([4, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0], [10, 18, 22, 25, 40, 15, 10, 8, 7])
+    >>> d = {a:b for a,b in zip(cls,freqs)}
+    >>> d
+    {4: 10, 4.5: 18, 5.0: 22, 5.5: 25, 6.0: 40, 6.5: 15, 7.0: 10, 7.5: 8, 8.0: 7}
+    >>> gmedian(make_data_intervals_from_freq(d.items(), 0.5, overlap=True))
+    6.03125
+    """
+    # begin
+    observations = data.length
+    median_class, cum_freq = median_class_and_cumfreq(data.items(), vfunc=lambda x:len(x))
+    class_freq = len(data.get_values(median_class))
+    # get the cumulative freq just before the median class:
+    cum_freq = cumulative_freq(data.items(), median_class, cmpfunc=lambda x,y:(x[0]<y,len(x[1])))
+    lower_class_limit = median_class[0]
+    class_size = median_class[1] - median_class[0]
+    return lower_class_limit + ( ((observations / 2) - cum_freq) / class_freq ) * class_size
 
-    class interval(metaclass=StrCls):
-        name = 'interval'
-        mean = igmean
-        data2freq = freqs_from_intervals
-
-    def __class_getitem__(cls, item):
-        if item in ('basic', cls.basic):
-            return cls.basic
-        elif item in ('freq', cls.freq):
-            return cls.freq
-        elif item in ('interval', cls.interval):
-            return cls.interval
-        else:
-            raise TypeError(f"No such item '{item}'")
 
 # variance:
 
 def _gvariance (mean: Number,
-                data: Sequence[[Number,Number]],
+                data: Sequence[Sequence[Number,Number], ...],
                 fromsample: bool) -> Number:
     """
     Returns the variance of $data.
@@ -673,7 +954,9 @@ def _gvariance (mean: Number,
         tot_freq += f
     return tot_score / (tot_freq - (1 if fromsample else 0))
 
-def gvariance (data, dtype, fromsample: bool = False) -> Number:
+def gvariance (data,
+               dtype: GDTYPE,
+               fromsample: bool = False) -> Number:
     """
     Returns the variance of $data for grouped data (using the Actual Mean Method).
     $dtype can be one of:
@@ -688,7 +971,9 @@ def gvariance (data, dtype, fromsample: bool = False) -> Number:
     mean = fgmean(data)
     return _gvariance(mean, data, fromsample)
 
-def gstandard_dev (data, dtype, fromsample: bool = False) -> Number:
+def gstandard_dev (data,
+                   dtype: GDTYPE,
+                   fromsample: bool = False) -> Number:
     """
     Returns the standard deviation (using the Actual Mean Method) for grouped data.
     $dtype can be one of:
@@ -700,7 +985,9 @@ def gstandard_dev (data, dtype, fromsample: bool = False) -> Number:
     """
     return math.sqrt(gvariance(data, dtype, fromsample))
 
-def gstandard_error(data, dtype, fromsample: bool = False) -> Number:
+def gstandard_error(data,
+                    dtype: GDTYPE,
+                    fromsample: bool = False) -> Number:
     """
     Standard error (using the Actual Mean Method) for grouped data.
     $dtype can be one of:
@@ -738,41 +1025,26 @@ def gprint_info (data, dtype, issample=False, prefix=None, justify_by=None):
             prefix, jb, gmean(data), gvariance(data, dtype, issample),
         gstandard_dev(data, dtype, issample), gstandard_error(data, dtype, issample), dtype))
 
+
+def mode (data):
+    ...
+    c = Counter
+    for v in data:
+        c[v] += 1
+    return max(c.items(), key=lambda x:x[1])
+
 def _test():
-    # from the python doc:
-    from statistics import median_grouped as s_median_grouped, median as s_media
-    from collections import Counter
-    demographics = Counter({
-    25: 172,   # 20 to 30 years old
-    35: 484,   # 30 to 40 years old
-    45: 387,   # 40 to 50 years old
-    55:  22,   # 50 to 60 years old
-    65:   6,   # 60 to 70 years old
-    })
-    '''
-    >>> data = list(demographics.elements())
-    >>> median(data)
-    35
-    >>> round(median_grouped(data, interval=10), 1)
-    37.5
-    '''
-    # XXX+TODO: median, mode
-        
-    def gmedian (data, **k):
-        tot = sum(data.values()) / 2
-        p = 0
-        for k, v in data.items():
-            p += v
-            if p >= tot:
-                return k
-        raise ValueError("Not found")
-    print("median:", median((24, 34, 43, 50, 67, 78)))
-    print("median:", median((23, 34, 43, 54, 56, 67, 78)))
-    print("median:", median(list(demographics.elements())))
-    print("gmedian:", gmedian(demographics))
+    # XXX+TODO: mode
+    #mode()
+
+
+    
     exit()
     
 if __name__ == '__main__':
+    dx=[(1,10),(2,21),(3,20),(4,26),(5,20),(6,4)]
+    d = Counter({ 20: 172, 30: 484,40: 387,50:  22,60:   6, })
+    dm = [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
     if 1:_test()
     """
     At the moment, this module can be used as a script for examples purpose only...
@@ -850,6 +1122,7 @@ if __name__ == '__main__':
     ############
 
     EXAMPLES = ''' EXAMPLES:
+    
     >>> variance([5,5,5,5])
     0.0
     >>> variance([2,3,4,5])
@@ -859,6 +1132,7 @@ if __name__ == '__main__':
     >>> variance([115,5,5,-115])
     6618.75
 
+    
     >>> mean([1,2,3,4,5,6])
     3.5
     >> gmean([1,2,3,4,5,6])
@@ -870,6 +1144,7 @@ if __name__ == '__main__':
     >>> igmean(make_data_intervals([1,1,1,1,1,2,3,4,5,6,99], [(0,10),(10,20),(20,100)]))
     10.0
 
+    
     >>> make_data_intervals(chain(*[range(10),range(1,10,3), range(1,10,2),(0,1,2)]), [(0,5),(6,10)])
     {(0, 5): [0, 1, 2, 3, 4, 5, 1, 4, 1, 3, 5, 0, 1, 2], (6, 10): [6, 7, 8, 9, 7, 7, 9]}
     >>> freqs_from_intervals(make_data_intervals(chain(*[range(10),range(1,10,3), range(1,10,2),(0,1,2)]), [(0,5),(6,10)]))
@@ -879,6 +1154,7 @@ if __name__ == '__main__':
     >>> igmean(make_data_intervals(chain(*[range(10),range(1,10,3), range(1,10,2),(0,1,2)]), [(0,5),(6,10)]))
     4.333333333333333
 
+    
     >>> data = list(sorted(chain(*[range(20),range(1,20,3), range(1,20,2),[0,1,2]*5])))
     >>> data
     [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 4, 4, 5, 5, 6,
@@ -899,4 +1175,45 @@ if __name__ == '__main__':
     0.8065501134197689
     >>> gstandard_error(i, GDTYPE.interval, fromsample=True)
     0.8144190813544674
+
+
+    >>> # https://flexbooks.ck12.org/cbook/ck-12-cbse-math-class-10/section/14.3/primary/lesson/median-of-grouped-data/
+    >>> list(range(0,50,10))
+    [0, 10, 20, 30, 40]
+    >>> d={a:b for a,b in zip(x,[2,4,5,4,2])}
+    >>> gmedian(make_data_intervals_from_freq(d.items(),10,overlap=True))
+    25.0
+    >>> from mismatched_socks import frange
+    >>> cls = list(frange(4,8.5,0.5))
+    >>> freqs = [10,18,22,25,40,15,10,8,7]
+    >>> cls, freqs
+    ([4, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0], [10, 18, 22, 25, 40, 15, 10, 8, 7])
+    >>> d = {a:b for a,b in zip(cls,freqs)}
+    >>> d
+    {4: 10, 4.5: 18, 5.0: 22, 5.5: 25, 6.0: 40, 6.5: 15, 7.0: 10, 7.5: 8, 8.0: 7}
+    >>> gmedian(make_data_intervals_from_freq(d.items(),0.5,overlap=True))
+    6.03125
+    >>> # also:
+    >>> i = make_data_intervals_from_freq(d.items(),0.5,overlap=True)
+    >>> m = gmedian(i)
+    >>> m
+    6.03125
+    >>> i[m]
+    ((6.0, 6.5), (6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25, 6.25))
+
+    
+    # unequal classes:
+    >>> i = IntervalDict(overlap=True)
+    >>> i.add_interval((0,10),[5]*8)
+    >>> i.add_interval((10,30),[20]*20)
+    >>> i.add_interval((30,60),[46]*36)
+    >>> i.add_interval((60,80),[70]*24)
+    >>> i.add_interval((80,90),[85]*12)
+    >>> i
+    {(0, 10): [5, 5, 5, 5, 5, 5, 5, 5], (10, 30): [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20], (30, 60): [46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46], (60, 80): [70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70], (80, 90): [85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85]}
+    >>> gmedian(i)
+    48.333333333333336
+    >>> i[gmedian(i)]
+    ((30, 60), (46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46))
+
     '''
