@@ -27,6 +27,10 @@ from typing import Any, Generic
 
 #
 import inspect
+
+# non std modules
+from mismatched_socks import mad_max # https://github.com/crap0101/laundry_basket/blob/master/mismatched_socks.py
+
 # local imports
 import rand
 
@@ -150,7 +154,37 @@ def median (data: Sequence, percentile=50):
     if n & 1:
         return data[x]
     return (data[x - 1] + data[x]) / 2
-    
+
+def mode (data: Sequence[Any, ...]) -> Sequence[Any, ...]:
+    """
+    Return the mode(s) of $data
+    >>> mode([1,2,3,4,5,5])
+    [5]
+    >>> mode([1,1,1,2,3,4,5,5,4])
+    [1]
+    >>> mode([1,1,2,3,4,5,5,4])
+    [1, 4, 5]
+    >>> mode('abcca')
+    ['a', 'c']
+    """
+    c = Counter()
+    for v in data:
+        c[v] += 1
+    return list(p[0] for p in mad_max(c.items(), key=lambda x:x[1]))
+
+#XXX+TODO: def scarto semplice medio (anche se meno usato della varianza) https://it.wikipedia.org/wiki/Scarto_medio_assoluto
+# ...e vedere se farlo anche per grouped data
+
+#XXX+TODO z-score
+# per trasformare la deviazione standard in un punteggio "z" che indica
+# a quante deviazioni standard dalla media sta un certo valore
+#  z-score = (valore_x - media_valori) / deviazione_standard_valori
+# ad esempio, z-score negativo indica che quel valore è sotto la media
+
+#XXX+TODO: ...e poi "Scala T", stein, ecc
+
+#XXX+TODO: rango percentile
+
 def _variance (mean: Number,
                data: Sequence[Number, ...],
                fromsample: bool) -> Number:
@@ -773,7 +807,7 @@ def median_class_and_cumfreq (data: Sequence[Sequence[Any,Any], ...],
     (2, 14)
     >>> fd
     [('a', 10), ('b', 21), ('c', 20), ('d', 26), ('e', 20), ('f', 4)]
-    >>> fmedian(fd)
+    >>> fgmedian(fd)
     'c'
     >>> median_class_and_cumfreq(fd)
     ('c', 51)
@@ -830,10 +864,19 @@ def median_class_and_cumfreq_at_value (data: Sequence[Sequence[Any,Any], ...],
 def ugmean (data: Sequence[Number]) -> Number:
     """
     $data's mean for grouped data without class intervals (using the Direct Method).
+    NOTE: this function creates a discrete frequency distribution from $data, then
+    computes it's mean.
     >>> ugmean([1,2,3])
     2.0
     >>> ugmean([1,2,3,10])
     4.0
+    >>> d = [1,2,3,1,2]
+    >>> ugmean(d)
+    1.8
+    >>> gmean(d)
+    1.8
+    >>> mean(d)
+    1.8
     """
     tot = len(data)
     return fgmean(make_data_freq(data))
@@ -872,7 +915,7 @@ def igmean (data: IntervalDict) -> Number:
 
 def gmean (data, dtype=None) -> Number:
     """
-    Try guessing data type for the correct mean func, or raise TypeError.
+    Try guessing the data type for the correct mean func, or raise TypeError.
     $data can be an IntervalDict, a sequence of (value, freq) pairs o a sequence of values.
     >>> data = list(sorted(chain(*[range(20),range(1,20,3), range(1,20,2),[0,1,2]*5])))
     >>> data
@@ -910,14 +953,14 @@ GDTYPE.interval.data2freq = freqs_from_intervals
 
 # median:
 
-def fmedian (data: Sequence[Sequence[Number,Number], ...], percentile=50) -> Number:
+def fgmedian (data: Sequence[Sequence[Number,Number], ...], percentile=50) -> Number:
     """
     Returns the median (for grouped data) at the target $percentile (default: 50)
     from the discrete frequency distribution $data, an already sorted sequence or (value, freq) pairs.
     >>> data = [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
-    >>> fmedian(data)
+    >>> fgmedian(data)
     2.0
-    >>> freqs_get_class(dm, fmedian(dm))
+    >>> freqs_get_class(dm, fgmedian(dm))
     (2, 7)
     """
     counter = Counter()
@@ -925,18 +968,19 @@ def fmedian (data: Sequence[Sequence[Number,Number], ...], percentile=50) -> Num
         counter[c] = f
     return median(list(counter.elements()), percentile)
 
-def gmedian (data: IntervalDict) -> Number: # XXX+TODO: percentile here too
+def igmedian (data: IntervalDict, percentile=50) -> Number: # XXX+TODO: percentile here too
     """
     Returns the median (for grouped data) from the Intervaldict $data.
+    XXX: $percentile ignored at this time.
     >>> i = make_data_intervals_from_freq([(0,3),(5,2),(10,5)], 5, overlap=True)
     >>> i
     {(0, 5): [2.5, 2.5, 2.5], (5, 10): [7.5, 7.5], (10, 15): [12.5, 12.5, 12.5, 12.5, 12.5]}
-    >>> gmedian(i)
+    >>> igmedian(i)
     10.0
     >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
     >>> i
     {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
-    >>> gmedian(i)
+    >>> igmedian(i)
     8.75
     >>> d = Counter({ # adapted from the python doc
     ...         20: 172,   # 20 to 30 years old
@@ -946,7 +990,7 @@ def gmedian (data: IntervalDict) -> Number: # XXX+TODO: percentile here too
     ...         60:   6,   # 60 to 70 years old
     ...     })
     >>> i = make_data_intervals_from_freq(d.items(), 10, overlap=True)
-    >>> m = gmedian(i)
+    >>> m = igmedian(i)
     >>> m
     37.510330578512395
     >>> i[m]
@@ -955,7 +999,7 @@ def gmedian (data: IntervalDict) -> Number: # XXX+TODO: percentile here too
     >>> d = {a:b for a,b in zip(cls,freqs)}
     >>> d
     {4: 10, 4.5: 18, 5.0: 22, 5.5: 25, 6.0: 40, 6.5: 15, 7.0: 10, 7.5: 8, 8.0: 7}
-    >>> gmedian(make_data_intervals_from_freq(d.items(), 0.5, overlap=True))
+    >>> igmedian(make_data_intervals_from_freq(d.items(), 0.5, overlap=True))
     6.03125
     """
     # begin
@@ -967,6 +1011,100 @@ def gmedian (data: IntervalDict) -> Number: # XXX+TODO: percentile here too
     lower_class_limit = median_class[0]
     class_size = median_class[1] - median_class[0]
     return lower_class_limit + ( ((observations / 2) - cum_freq) / class_freq ) * class_size
+
+def gmedian (data, percentile=50):
+    """
+    Returns the median for grouped data.
+    $data can be an IntervalDict or a sequence of (value, freq) pairs.
+    Try guessing the data type of $data for the correct median func (fgmedian or igmedian).
+    >>> dx
+    [(1, 10), (2, 21), (3, 20), (4, 26), (5, 20), (6, 4)]
+    >>> fgmedian(dx)
+    3
+    >>> gmedian(dx)
+    3
+    >>> i
+    {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19]}
+    >>> gmedian(i)
+    11.25
+    >>> igmedian(i)
+    11.25
+    """
+    return (igmedian if isinstance(data, IntervalDict) else fgmedian)(data, percentile)
+
+# mode:
+
+def fgmode (data: Sequence[Sequence[Any,Any], ...]):
+    """
+    Returns the mode(s) (for grouped data) from the discrete frequency distribution $data,
+    a sequence or (value, freq) pairs.
+    The returned value(s) are in the the form of (mode_item, mode_value).
+    >>> d = [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
+    >>> fgmode(d)
+    [(2, 7)]
+    >>> d = list(zip('abcdefop', [1,1,2,3,4,5,5,4]))
+    >>> d
+    [('a', 1), ('b', 1), ('c', 2), ('d', 3), ('e', 4), ('f', 5), ('o', 5), ('p', 4)]
+    >>> fgmode(d)
+    [('f', 5), ('o', 5)]
+    """
+    return mad_max(data, key=lambda x:x[1])
+
+def igmode_from_interval (seq, item):
+    """
+    Returns the mode of the $seq's $item interval.
+    NOTE: $item shold be the modal intervall of $seq, otherwise the result can be pretty... wrong :D
+    >>> i
+    {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}
+    >>> igmode_from_interval(list(i.items()), ((0, 10), [1,4,7]))
+    15.0
+    """
+    cls, values = item
+    idx = seq.index(item)
+    L = cls[0]
+    fm = len(values)
+    h = cls[1] - cls[0]
+    if idx == 0:
+        f1 = 0
+    else:
+        f1 = len(seq[idx - 1][1])
+    if idx == (len(seq) - 1):
+        f2 = 0
+    else:
+        f2 = len(seq[idx + 1][1])
+    return L + ( ( (fm - f1) / ( (fm - f1) + (fm - f2) ) ) * h )
+    #return L + ( ( (fm - f1) / (fm*2 - f1 - f2)) * h )
+    ## or #return L + ( ( (fm - f1) / (fm*2 - (f1 + f2)) ) * h )
+
+def igmode (data: IntervalDict):
+    """
+    Returns the mode(s) of $data, in the form of [((cls, values), mode), ...].
+    >>> i
+    {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}
+    >>> igmode(i)
+    [(((10, 20), [10, 13, 16, 19]), 15.0)]
+    >>> i.empty_interval((10,20))
+    >>> i += 35
+    >>> i
+    {(0, 10): [1, 4, 7], (10, 20): [], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37, 35]}
+    >>> igmode(i)
+    [(((30, 40), [31, 34, 37, 35]), 32.0)]
+    """
+    lst = list(data.items())
+    modal_classes = mad_max(lst, key=lambda x:len(x[1]))
+    modes = []
+    for m in modal_classes:
+        modes.append((m, igmode_from_interval(lst, m)))
+    return modes
+
+def gmode (data):
+    """
+    Returns the mode(s) for grouped data.
+    $data can be an IntervalDict or a sequence of (value, freq) pairs.
+    Try guessing the data type of $data for the correct mode func (fgmode or igmode).
+
+    """
+    return (igmode if isinstance(data, IntervalDict) else fgmode)(data)
 
 
 # variance:
@@ -1059,19 +1197,7 @@ def gprint_info (data, dtype, issample=False, prefix=None, justify_by=None):
         gstandard_dev(data, dtype, issample), gstandard_error(data, dtype, issample), dtype))
 
 
-def mode (data):
-    ...
-    c = Counter
-    for v in data:
-        c[v] += 1
-    return max(c.items(), key=lambda x:x[1])
-
 def _test():
-    # XXX+TODO: mode
-    #mode()
-
-
-
     exit()
     print("testing...", end='', flush=True)
     d = list(range(9999))
@@ -1085,10 +1211,11 @@ def _test():
     exit()
     
 if __name__ == '__main__':
-    dx=[(1,10),(2,21),(3,20),(4,26),(5,20),(6,4)]
-    d = Counter({ 20: 172, 30: 484,40: 387,50:  22,60:   6, })
+    d = Counter({ 20: 172, 30: 484, 40: 387,50:  22,60: 6 })
+    dx = [(1,10),(2,21),(3,20),(4,26),(5,20),(6,4)]
     dm = [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
     fd = list(zip('abcdef',(10,21,20,26,20,4)))
+    i = IntervalDict([(0,10),(10,20),(20,30),(30,40)], range(1,50,3), trim=True, overlap=True)
     if 1:_test()
     """
     At the moment, this module can be used as a script for examples purpose only...
@@ -1225,7 +1352,7 @@ if __name__ == '__main__':
     >>> list(range(0,50,10))
     [0, 10, 20, 30, 40]
     >>> d={a:b for a,b in zip(x,[2,4,5,4,2])}
-    >>> gmedian(make_data_intervals_from_freq(d.items(),10,overlap=True))
+    >>> igmedian(make_data_intervals_from_freq(d.items(),10,overlap=True))
     25.0
     >>> from mismatched_socks import frange
     >>> cls = list(frange(4,8.5,0.5))
@@ -1235,11 +1362,11 @@ if __name__ == '__main__':
     >>> d = {a:b for a,b in zip(cls,freqs)}
     >>> d
     {4: 10, 4.5: 18, 5.0: 22, 5.5: 25, 6.0: 40, 6.5: 15, 7.0: 10, 7.5: 8, 8.0: 7}
-    >>> gmedian(make_data_intervals_from_freq(d.items(),0.5,overlap=True))
+    >>> igmedian(make_data_intervals_from_freq(d.items(),0.5,overlap=True))
     6.03125
     >>> # also:
     >>> i = make_data_intervals_from_freq(d.items(),0.5,overlap=True)
-    >>> m = gmedian(i)
+    >>> m = igmedian(i)
     >>> m
     6.03125
     >>> i[m]
@@ -1255,9 +1382,9 @@ if __name__ == '__main__':
     >>> i.add_interval((80,90),[85]*12)
     >>> i
     {(0, 10): [5, 5, 5, 5, 5, 5, 5, 5], (10, 30): [20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20], (30, 60): [46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46], (60, 80): [70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70, 70], (80, 90): [85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85, 85]}
-    >>> gmedian(i)
+    >>> igmedian(i)
     48.333333333333336
-    >>> i[gmedian(i)]
+    >>> i[igmedian(i)]
     ((30, 60), (46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46, 46))
 
     '''
