@@ -21,6 +21,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, ItemsView, Sequence
 from enum import Enum
 import math
+from numbers import Number
 import operator
 import random
 from typing import Any, Generic
@@ -32,13 +33,13 @@ import inspect
 from mismatched_socks import mad_max # https://github.com/crap0101/laundry_basket/blob/master/mismatched_socks.py
 
 # local imports
-import rand
+from mad_math import rand
 
 #############
 # some defs #
 #############
 
-Number = float | int
+#Number = float | int
 
 class CumFreqT(Enum):
     lt = 0
