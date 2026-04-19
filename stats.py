@@ -57,18 +57,12 @@ class GDTYPE:
 
     class basic(metaclass=StrCls):
         name = 'basic'
-        mean = ... # ugmean (later, undef her)
-        data2freq = ... # make_data_freq
 
     class freq(metaclass=StrCls):
         name = 'freq'
-        mean = ... # fgmean
-        data2freq = ... # lambda x: x
 
     class interval(metaclass=StrCls):
         name = 'interval'
-        mean = ... # igmean
-        data2freq = ... # freqs_from_intervals
 
     def __class_getitem__(cls, item):
         if item in ('basic', cls.basic):
@@ -89,7 +83,6 @@ class IntervalError(Exception):
     def __str__ (self):
         return self.msg
 
-# ...also see below for GDTYPE
 
 ###############
 # general use #
@@ -182,6 +175,54 @@ def mode (data: Sequence[Any, ...]) -> Sequence[Any, ...]:
 #  z-score = (valore_x - media_valori) / deviazione_standard_valori
 # ad esempio, z-score negativo indica che quel valore è sotto la media
 
+def zscore (value, data):
+    """
+    Returns the z-score of $value (an item from $data), i.e. the position of $value
+    in terms of its distance from the mean, measured in standard deviation units.
+    """
+    m = mean(data)
+    s = standard_dev(data)
+    return deviation(value, m) / s
+
+def zscores (data):
+    """
+    Returns a list of z-scores for the values of $data.
+    """
+    m = mean(data)
+    s = standard_dev(data)
+    return list(deviation(x, m) / s for x in data)
+
+def correlation_raw(data1, data2):
+    len1, len2 = len(data1), len(data2)
+    assert len1 == len2
+    # ....?????
+
+def correlation_bp(data1, data2):
+    """correlation using the Bravais-Pearson method."""
+    len1, len2 = len(data1), len(data2)
+    assert len1 == len2
+    z1 = zscores(data1)
+    z2 = zscores(data2)
+    return sum(x * y for x,y in zip(z1, z2)) / len1
+
+def correlation_cov(data1, data2):
+    """correlation using covariance"""
+    len1, len2 = len(data1), len(data2)
+    assert len1 == len2
+    z1 = zscores(data1)
+    z2 = zscores(data2)
+    return sum(x * y for x,y in zip(z1, z2)) / len1
+
+def covariance (data1, data2):
+    len1, len2 = len(data1), len(data2)
+    assert len1 == len2
+    m1 = mean(data1)
+    m2 = mean(data2)
+    return sum(deviation(x1, m1) * deviation(x2, m2) for x1,x2 in zip(data1, data2)) / len1
+
+def _correlation (a,b): # correlation check
+    return covariance(a,b) / (standard_dev(a) * standard_dev(b))
+
 #XXX+TODO: ...e poi "Scala T", stein, ecc
 
 #XXX+TODO: rango percentile
@@ -226,7 +267,7 @@ def standard_error (data: Sequence[Number, ...],
 
 ####################
 # for grouped data #
-###################
+####################
 
 def autogroup_perc_chunks (data_length: Number, perc: Number = 20) -> Number:
     """
@@ -283,6 +324,31 @@ def autogroup (chunks: Number,
             minvalue += nc + overlap
     return classes
 
+class FrequencyPairs (Sequence):
+    """Object for frequency pairs."""
+    def __init__ (self, data=[]):
+        self._data = []
+        for value, freq in data:
+            self._data.append((value, freq))
+
+    def __str__ (self):
+        return repr(self._data)
+    __repr__ = __str__
+    
+    def __getitem__ (self, value: Number) -> Sequence[Any,Number]:
+        return self._data[value]
+    
+    def __len__ (self) -> Number:
+        return len(self._data)
+
+    def append (self, item):
+        self._data.append(tuple(item))
+
+    def items (self) -> Sequence[Sequence[Any,Number], ...]:
+        """Return a tuple of the items."""
+        return tuple(self._data)
+    # ok: .index, .count (from Sequence)
+    #XXX+TODO: add .insert / extend ??? add __setitem__ / __delitem__ ?
 
 class IntervalDict:
     """
@@ -697,20 +763,20 @@ def cumulative_freq (data: Sequence,
             break
     return freq
 
-def freqs_from_intervals (data: IntervalDict) -> Sequence[Sequence[Number,Number], ...]:
+def freqs_from_intervals (data: IntervalDict) -> FrequencyPairs:
     """
-    Return frequencies from interval data.
+    Return frequencies as a FrequencyPairs from interval data.
     >>> make_data_intervals([0,1,2], [(0,5),(6,10)])
     {(0, 5): [0, 1, 2], (6, 10): []}
     >>> freqs_from_intervals(make_data_intervals([0,1,2], [(0,5),(6,10)]))
     [(2.5, 3), (8.0, 0)]
     """
-    freqs = []
+    freqs = FrequencyPairs()
     for (imin, imax), values in data.items():
         freqs.append((((imax + imin) / 2 ), len(values)))
     return freqs
 
-def freqs_get_class (data: Sequence[Sequence[Number,Number], ...],
+def freqs_get_class (data: FrequencyPairs,
                      cls: Any) -> Sequence[Any, Any]:
     """
     Returns the (class, freq) pair belonging to $cls from the the frequencies sequence $data.
@@ -730,7 +796,7 @@ def freqs_get_class (data: Sequence[Sequence[Number,Number], ...],
     raise ValueError(f"class {cls} not found")
 
 def make_data_intervals (data: Sequence[Number, ...],
-                         intervals: Sequence[Sequence[Number,Number], ...],
+                         intervals: FrequencyPairs,
                          trim=False,
                          overlap=False) -> IntervalDict:
     """
@@ -744,7 +810,7 @@ def make_data_intervals (data: Sequence[Number, ...],
         d += value
     return d
 
-def make_data_intervals_from_freq (data: Sequence[Sequence[Number,Number], ...],
+def make_data_intervals_from_freq (data: FrequencyPairs,
                                    size: Number,
                                    trim=False,
                                    overlap=False) -> IntervalDict:
@@ -765,9 +831,9 @@ def make_data_intervals_from_freq (data: Sequence[Sequence[Number,Number], ...],
         d.add_interval([class_lower, class_upper], [(class_lower + class_upper) / 2] * amount)
     return d
 
-def make_data_freq (data: Sequence[Number]) -> Sequence[[Number,Number]]:
+def make_data_freq (data: Sequence[Number]) -> FrequencyPairs:
     """
-    Returns frequencies from distinct measurements.
+    Returns a FrequencyPairs from distinct measurements.
     >>> from itertools import chain
     >>> make_data_freq(chain(*[range(5), range(1,10,2)]))
     [(0, 1), (1, 2), (2, 1), (3, 2), (4, 1), (5, 1), (7, 1), (9, 1)]
@@ -775,14 +841,15 @@ def make_data_freq (data: Sequence[Number]) -> Sequence[[Number,Number]]:
     freqd = defaultdict(int)
     for value in data:
         freqd[value] += 1
-    return list(freqd.items())
+    return FrequencyPairs(freqd.items())
 
-def _median_class_and_cumfreq (data: Sequence[Sequence[Any,Any], ...],
-                              percentile: Number = 50, vfunc=lambda x:x) -> Sequence[Any,Number]:
+def _median_class_and_cumfreq (data: FrequencyPairs,
+                              percentile: Number = 50,
+                               vfunc=lambda x:x) -> Sequence[Any,Number]:
     """
     Returns the median class and the relative cumulative frequence of $data at the target $percentile (default: 50).
-    $data is a sequence of (class, values_or_freq) pairs, while $vfunc is a function to be applied to
-    values_or_freq before the computation of the cumulative frequence (default to the identity function).
+    $data is a FrequencyPairs or compatible object, while $vfunc is a function to be applied to the
+    frequency value before the computation of the cumulative frequency (default to the identity function).
     NOTE: test: not considering if observations are even or odd.
     """
     if (percentile <= 0) or (percentile > 100):
@@ -795,13 +862,14 @@ def _median_class_and_cumfreq (data: Sequence[Sequence[Any,Any], ...],
             return cls, cumf
     raise ValueError("median class not found")
 
-def median_class_and_cumfreq (data: Sequence[Sequence[Any,Any], ...],
-                              percentile: Number = 50, vfunc=lambda x:x) -> Sequence[Any,Number]:
+def median_class_and_cumfreq (data: FrequencyPairs,
+                              percentile: Number = 50,
+                              vfunc=lambda x:x) -> Sequence[Any,Number]:
     """
     Returns the median class and the relative cumulative frequence of $data at the target $percentile (default: 50).
-    $data is a sequence of (class, values_or_freq) pairs, while $vfunc is a function to be applied to
-    values_or_freq before the computation of the cumulative frequence (default to the identity function).
-    NOTE: $percentile values limited between 1 and 99 (seems enough).
+    $data is a  FrequencyPairs or compatible object, while $vfunc is a function to be applied to the
+    frequency values before the computation of the cumulative frequency (default to the identity function).
+    NOTE: $percentile value limited between 1 and 99 (seems enough).
     >>> dm
     [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
     >>> median_class_and_cumfreq(dm)
@@ -836,12 +904,13 @@ def median_class_and_cumfreq (data: Sequence[Sequence[Any,Any], ...],
             return cls, cumf
     raise ValueError("median class not found")
 
-def median_class_and_cumfreq_at_value (data: Sequence[Sequence[Any,Any], ...],
-                              target_freq: Number, vfunc=lambda x:x) -> Sequence[Any,Number]:
+def median_class_and_cumfreq_at_value (data: FrequencyPairs,
+                                       target_freq: Number,
+                                       vfunc=lambda x:x) -> Sequence[Any,Number]:
     """
     Returns the median class and the relative cumulative frequence of $data at the $target_freq point.
-    $data is a sequence of (class, values_or_freq) pairs, while $vfunc is a function to be applied to
-    values_or_freq before the computation of the cumulative frequence (default to the identity function).
+    $data is a FrequencyPairs or compatible object, while $vfunc is a function to be applied to the
+    frequency values before the computation of the cumulative frequency (default to the identity function).
     >>> dm
     [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
     >>> median_class_and_cumfreq(dm)
@@ -860,7 +929,10 @@ def median_class_and_cumfreq_at_value (data: Sequence[Sequence[Any,Any], ...],
             return cls, cumf
     raise ValueError("median class (at value) not found")
 
-# means:
+
+################
+# grouped mean #
+################
 
 def ugmean (data: Sequence[Number]) -> Number:
     """
@@ -884,9 +956,9 @@ def ugmean (data: Sequence[Number]) -> Number:
     #freqd = make_data_freq(data)
     #return sum(i * f for i, f in freqd.items()) / sum(freqd.values())
 
-def fgmean (data: Sequence[Sequence[Number,Number], ...]) -> Number:
+def fgmean (data: FrequencyPairs) -> Number:
     """
-    $data's mean for grouped data in (value, freq) format (using the Direct Method).
+    $data's mean for grouped $data as FrequencyPairs-like objects (using the Direct Method).
     >>> i
     {(0, 5): [0, 1, 2], (6, 10): []}
     >>> fgmean(freqs_from_intervals(i))
@@ -901,7 +973,7 @@ def fgmean (data: Sequence[Sequence[Number,Number], ...]) -> Number:
 
 def igmean (data: IntervalDict) -> Number:
     """
-    $data's mean for grouped data with class intervals (using the Direct Method).
+    $data's mean for grouped $data with class intervals (using the Direct Method).
     {(0, 5): [0, 1, 2], (6, 10): []}
     >>> igmean(i)
     2.5
@@ -914,10 +986,10 @@ def igmean (data: IntervalDict) -> Number:
         total_freq += lv
     return total_class / total_freq
 
-def gmean (data, dtype=None) -> Number:
+def gmean (data:IntervalDict|FrequencyPairs|Sequence) -> Number:
     """
-    Try guessing the data type for the correct mean func, or raise TypeError.
-    $data can be an IntervalDict, a sequence of (value, freq) pairs o a sequence of values.
+    Returns the mean of $data, which can be an IntervalDict, a FrequencyPairs or a sequence of values
+    (in the latter case, make_data_freq() is applied to the sequence before the computation).
     >>> data = list(sorted(chain(*[range(20),range(1,20,3), range(1,20,2),[0,1,2]*5])))
     >>> data
     [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 4, 4, 5, 5, 6,
@@ -935,29 +1007,22 @@ def gmean (data, dtype=None) -> Number:
     >>> gmean(list(chain(*(v for k,v in i.items())))) # ugmean
     7.211538461538462
     """
-    if dtype is None:
-        if isinstance(data, IntervalDict):
-            dtype = GDTYPE.interval
-        elif isinstance(data, Sequence):
-            if isinstance(data[0], Number):
-                dtype = GDTYPE.basic
-            elif isinstance(data[0], Sequence):
-                dtype = GDTYPE.freq
-    return GDTYPE[dtype].mean(data)
+    if isinstance(data, IntervalDict):
+        return igmean(data)
+    elif isinstance(data, FrequencyPairs):
+        return fgmean(data)
+    else:
+        return fgmean(make_data_freq(data))
 
-GDTYPE.basic.mean = ugmean
-GDTYPE.basic.data2freq = make_data_freq
-GDTYPE.freq.mean = fgmean
-GDTYPE.freq.data2freq = lambda x: x
-GDTYPE.interval.mean = igmean
-GDTYPE.interval.data2freq = freqs_from_intervals
 
-# median:
+##################
+# grouped median #
+##################
 
-def fgmedian (data: Sequence[Sequence[Number,Number], ...], percentile=50) -> Number:
+def fgmedian (data: FrequencyPairs, percentile=50) -> Number:
     """
     Returns the median (for grouped data) at the target $percentile (default: 50)
-    from the discrete frequency distribution $data, an already sorted sequence or (value, freq) pairs.
+    from the discrete frequency distribution $data, an already sorted FrequencyPairs-like object.
     >>> data = [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
     >>> fgmedian(data)
     2.0
@@ -1016,13 +1081,13 @@ def igmedian (data: IntervalDict, percentile=50) -> Number: # XXX+TODO: percenti
 def gmedian (data, percentile=50):
     """
     Returns the median for grouped data.
-    $data can be an IntervalDict or a sequence of (value, freq) pairs.
-    Try guessing the data type of $data for the correct median func (fgmedian or igmedian).
+    $data can be an IntervalDict, a FrequencyPairs or a sequence of values (in the latter case
+    make_data_freq() is applied to the sequence before the computation).
     >>> dx
     [(1, 10), (2, 21), (3, 20), (4, 26), (5, 20), (6, 4)]
     >>> fgmedian(dx)
     3
-    >>> gmedian(dx)
+    >>> gmedian(FrequencyPairs(dx))
     3
     >>> i
     {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19]}
@@ -1031,14 +1096,22 @@ def gmedian (data, percentile=50):
     >>> igmedian(i)
     11.25
     """
-    return (igmedian if isinstance(data, IntervalDict) else fgmedian)(data, percentile)
+    if isinstance(data, IntervalDict):
+        return igmedian(data, percentile)
+    elif isinstance(data, FrequencyPairs):
+        return fgmedian(data, percentile)
+    else:
+        return fgmedian(make_data_freq(data), percentile)
 
-# mode:
+
+################
+# grouped mode #
+################
 
 def fgmode (data: Sequence[Sequence[Any,Any], ...]):
     """
     Returns the mode(s) (for grouped data) from the discrete frequency distribution $data,
-    a sequence or (value, freq) pairs.
+    a FrequencyPairs-like object.
     The returned value(s) are in the the form of (mode_item, mode_value).
     >>> d = [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
     >>> fgmode(d)
@@ -1054,7 +1127,7 @@ def fgmode (data: Sequence[Sequence[Any,Any], ...]):
 def igmode_from_interval (seq, item):
     """
     Returns the mode of the $seq's $item interval.
-    NOTE: $item shold be the modal intervall of $seq, otherwise the result can be pretty... wrong :D
+    NOTE: $item shold be the modal interval of $seq, otherwise the result can be pretty... wrong :D
     >>> i
     {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}
     >>> igmode_from_interval(list(i.items()), ((0, 10), [1,4,7]))
@@ -1101,22 +1174,24 @@ def igmode (data: IntervalDict):
 def gmode (data):
     """
     Returns the mode(s) for grouped data.
-    $data can be an IntervalDict or a sequence of (value, freq) pairs.
-    Try guessing the data type of $data for the correct mode func (fgmode or igmode).
-
+    $data can be an IntervalDict or a FrequencyPairs-like object.
     """
-    return (igmode if isinstance(data, IntervalDict) else fgmode)(data)
+    if isinstance(data, IntervalDict):
+        return igmode(data)
+    return fgmode(data)
 
 
-# variance:
+####################
+# grouped variance #
+####################
 
 def _gvariance (mean: Number,
-                data: Sequence[Sequence[Number,Number], ...],
+                data: FrequencyPairs,
                 fromsample: bool) -> Number:
     """
     Returns the variance of $data.
     $mean: mean of $data
-    $data: sequence of (value, frequencey) pairs
+    $data: FrequencyPairs-like object
     $fromsample: if data is from a sample
     """
     tot_score = 0
@@ -1126,53 +1201,48 @@ def _gvariance (mean: Number,
         tot_freq += f
     return tot_score / (tot_freq - (1 if fromsample else 0))
 
-def gvariance (data,
-               dtype: GDTYPE,
+def gvariance (data: IntervalDict|FrequencyPairs,
                fromsample: bool = False) -> Number:
     """
     Returns the variance of $data for grouped data (using the Actual Mean Method).
-    $dtype can be one of:
-        "basic" | GDTYPE.basic ----------> if $data contains individual measurament values (default)
-        "freq" | GDTYPE.freq ------------> if $data is a sequence of (value, frequency) pairs
-        "intervals" | GDTYPE.intervals --> if $data is an IntervalDict
-    Raise TypeError for unknown values.
+    $data can be an IntervalDict of a FrequencyPairs-like object.
     Set $fromsample to True if $data is a sample.
     """
-    dt = GDTYPE[dtype]
-    data = dt.data2freq(data)
+    if isinstance(data, IntervalDict):
+        data = freqs_from_intervals(data)
     mean = fgmean(data)
     return _gvariance(mean, data, fromsample)
 
-def gstandard_dev (data,
-                   dtype: GDTYPE,
+
+##############################
+# grouped standard deviation #
+##############################
+
+def gstandard_dev (data: IntervalDict|FrequencyPairs,
                    fromsample: bool = False) -> Number:
     """
     Returns the standard deviation (using the Actual Mean Method) for grouped data.
-    $dtype can be one of:
-        "basic" | GDTYPE.basic ----------> if $data contains individual measurament values (default)
-        "freq" | GDTYPE.freq ------------> if $data is a sequence of (value, frequency) pairs
-        "intervals" | GDTYPE.intervals --> if $data is an IntervalDict
-    Raise ValueError for unknown values.
+    $data can be an IntervalDict of a FrequencyPairs-like object.
     Set $fromsample to True if $data is a sample.
     """
-    return math.sqrt(gvariance(data, dtype, fromsample))
+    return math.sqrt(gvariance(data, fromsample))
 
-def gstandard_error(data,
-                    dtype: GDTYPE,
+
+##########################
+# grouped standard error #
+##########################
+
+def gstandard_error(data: IntervalDict|FrequencyPairs,
                     fromsample: bool = False) -> Number:
     """
     Standard error (using the Actual Mean Method) for grouped data.
-    $dtype can be one of:
-        "basic" | GDTYPE.basic ----------> if $data contains individual measurament values (default)
-        "freq" | GDTYPE.freq ------------> if $data is a sequence of (value, frequency) pairs
-        "intervals" | GDTYPE.intervals --> if $data is an IntervalDict
-    Raise TypeError for unknown values.
+    $data can be an IntervalDict of a FrequencyPairs-like object.
     Set $fromsample to True if $data is a sample.
     """
-    dt = GDTYPE[dtype]
-    data = dt.data2freq(data)
+    if isinstance(data, IntervalDict):
+        data = freqs_from_intervals(data)
     fsum = sum(f for v, f in data)
-    return gstandard_dev(data, 'freq', fromsample) / math.sqrt(fsum)
+    return gstandard_dev(data, fromsample) / math.sqrt(fsum)
 
 
 ################
@@ -1184,18 +1254,18 @@ def print_info (data, issample=False, prefix=None, justify_by=None):
     if prefix is None:
         prefix = 'sample' if issample else 'population'
     jb = len(prefix) if justify_by is None else justify_by
-    print('{:{}} mean: {:.2f} | variance: {:.2f} | st_dev: {:.2f} | st_err {:.2f} | min,max='.format(
+    print('{:{}} mean {:.2f} | variance {:.2f} | std {:.2f} | ste {:.2f}'.format(
             prefix, jb, mean(data), variance(data, issample),
-        standard_dev(data, issample), standard_error(data, issample)), min(data), max(data))
+        standard_dev(data, issample), standard_error(data, issample)))
 
 def gprint_info (data, dtype, issample=False, prefix=None, justify_by=None):
     """Prints info for grouped data."""
     if prefix is None:
         prefix = 'sample' if issample else 'population'
     jb = len(prefix) if justify_by is None else justify_by
-    print('{:{}} mean: {:.2f} | variance: {:.2f} | st_dev: {:.2f} | st_err {:.2f} ({})'.format(
-            prefix, jb, gmean(data), gvariance(data, dtype, issample),
-        gstandard_dev(data, dtype, issample), gstandard_error(data, dtype, issample), dtype))
+    print('{:{}} mean {:.2f} | variance {:.2f} | std {:.2f} | ste {:.2f} ({})'.format(
+            prefix, jb, gmean(data), gvariance(data, issample),
+        gstandard_dev(data, issample), gstandard_error(data, issample), dtype))
 
 
 def _test():
@@ -1217,7 +1287,7 @@ if __name__ == '__main__':
     dm = [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
     fd = list(zip('abcdef',(10,21,20,26,20,4)))
     i = IntervalDict([(0,10),(10,20),(20,30),(30,40)], range(1,50,3), trim=True, overlap=True)
-    if 1:_test()
+    if 0:_test()
     """
     At the moment, this module can be used as a script for examples purpose only...
     possibly XXX+TODO add code to read and manipulate data.
@@ -1266,7 +1336,6 @@ if __name__ == '__main__':
     # grouped
     if parsed.grouped:
         pop_prefix = f'[G] population ({parsed.population_size})'
-        gprint_info(population, GDTYPE.basic, False, pop_prefix, jb)
         data = make_data_freq(population)
         gprint_info(data, GDTYPE.freq, False, pop_prefix, jb)
         pop_classes = autogroup(5, parsed.minval, parsed.maxval)
@@ -1281,7 +1350,6 @@ if __name__ == '__main__':
         # grouped
         if parsed.grouped:
             sample_prefix = f'[G] sample ({sl})'
-            gprint_info(sample, GDTYPE.basic, True, sample_prefix, jb)
             data = make_data_freq(sample)
             gprint_info(data, GDTYPE.freq, False, sample_prefix, jb)
             pop_classes = autogroup(5, parsed.minval, parsed.maxval)
@@ -1339,18 +1407,18 @@ if __name__ == '__main__':
      (16, 20): [16, 16, 17, 17, 18, 19, 19, 19]}
     >>> type(i)
     <class '__main__.IntervalDict'>
-    >>> gvariance(i, GDTYPE.interval)
+    >>> gvariance(i)
     33.82720044378698
-    >>> gstandard_dev(i, GDTYPE.interval)
+    >>> gstandard_dev(i)
     5.8161155803325455
-    >>> gstandard_error(i, GDTYPE.interval)
+    >>> gstandard_error(i)
     0.8065501134197689
-    >>> gstandard_error(i, GDTYPE.interval, fromsample=True)
+    >>> gstandard_error(i, fromsample=True)
     0.8144190813544674
 
 
     >>> # https://flexbooks.ck12.org/cbook/ck-12-cbse-math-class-10/section/14.3/primary/lesson/median-of-grouped-data/
-    >>> list(range(0,50,10))
+    >>> x = list(range(0,50,10))
     [0, 10, 20, 30, 40]
     >>> d={a:b for a,b in zip(x,[2,4,5,4,2])}
     >>> igmedian(make_data_intervals_from_freq(d.items(),10,overlap=True))
