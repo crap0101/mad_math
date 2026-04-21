@@ -35,11 +35,13 @@ from mismatched_socks import mad_max # https://github.com/crap0101/laundry_baske
 # local imports
 from mad_math import rand
 
+
 #############
 # some defs #
 #############
 
-#Number = float | int
+NumPair = tuple[Number,Number]
+Empty = Sequence[()]
 
 class CumFreqT(Enum):
     lt = 0
@@ -105,7 +107,7 @@ def get_sample (population: Sequence[Number, ...],
 # for ungrouped data #
 ######################
 
-def deviation (mean: Number, score: Number) -> Number:
+def deviation (score: Number, mean: Number) -> Number:
     """Deviation of $score from the $mean."""
     return score - mean
 
@@ -168,35 +170,36 @@ def mode (data: Sequence[Any, ...]) -> Sequence[Any, ...]:
 
 #XXX+TODO: def scarto semplice medio (anche se meno usato della varianza) https://it.wikipedia.org/wiki/Scarto_medio_assoluto
 # ...e vedere se farlo anche per grouped data
+#XXX alpha di Cronbach
+#XXX: variance,std,ste: add choice for central point (mean, median or mode)
 
-#XXX+TODO z-score
-# per trasformare la deviazione standard in un punteggio "z" che indica
-# a quante deviazioni standard dalla media sta un certo valore
-#  z-score = (valore_x - media_valori) / deviazione_standard_valori
-# ad esempio, z-score negativo indica che quel valore è sotto la media
 
-def zscore (value, data):
+def zscore (value: Number, data: Sequence, fromsample=True):
     """
-    Returns the z-score of $value (an item from $data), i.e. the position of $value
+    Returns the z-score (or standard score) of $value from $data, i.e. the position of $value
     in terms of its distance from the mean, measured in standard deviation units.
+    $fromsample default to True ($data is a sample, set to False for population).
     """
     m = mean(data)
-    s = standard_dev(data)
+    s = standard_dev(data, fromsample)
     return deviation(value, m) / s
 
-def zscores (data):
+def zscores (data: Sequence, fromsample=True):
     """
     Returns a list of z-scores for the values of $data.
+    $fromsample default to True ($data is a sample, set to False for population).
     """
     m = mean(data)
-    s = standard_dev(data)
+    s = standard_dev(data, fromsample)
     return list(deviation(x, m) / s for x in data)
 
+#XXX
 def correlation_raw(data1, data2):
     len1, len2 = len(data1), len(data2)
     assert len1 == len2
     # ....?????
 
+#XXX
 def correlation_bp(data1, data2):
     """correlation using the Bravais-Pearson method."""
     len1, len2 = len(data1), len(data2)
@@ -205,6 +208,7 @@ def correlation_bp(data1, data2):
     z2 = zscores(data2)
     return sum(x * y for x,y in zip(z1, z2)) / len1
 
+#XXX
 def correlation_cov(data1, data2):
     """correlation using covariance"""
     len1, len2 = len(data1), len(data2)
@@ -213,6 +217,7 @@ def correlation_cov(data1, data2):
     z2 = zscores(data2)
     return sum(x * y for x,y in zip(z1, z2)) / len1
 
+#XXX
 def covariance (data1, data2):
     len1, len2 = len(data1), len(data2)
     assert len1 == len2
@@ -220,6 +225,7 @@ def covariance (data1, data2):
     m2 = mean(data2)
     return sum(deviation(x1, m1) * deviation(x2, m2) for x1,x2 in zip(data1, data2)) / len1
 
+#XXX
 def _correlation (a,b): # correlation check
     return covariance(a,b) / (standard_dev(a) * standard_dev(b))
 
@@ -231,13 +237,23 @@ def _variance (mean: Number,
                data: Sequence[Number, ...],
                fromsample: bool) -> Number:
     """Variance for ungrouped data."""
-    return sum(deviation(mean, score)**2 for score in data) / (len(data) - (1 if fromsample else 0))
+    return sum(deviation(score, mean)**2 for score in data) / (len(data) - (1 if fromsample else 0))
 
 def variance (data: Sequence[Number, ...],
-              fromsample: bool = False) -> Number:
+              fromsample: bool = True) -> Number:
     """
     Variance of $data for ungrouped data.
-    Set $fromsample to True if $data is a sample.
+    $fromsample default to True ($data is a sample, set to False for population).
+    >>> variance([5,5,5,5])
+    0.0
+    >>> variance([2,3,4,5])
+    1.6666666666666667
+    >>> variance([115,5,5,5])
+    3025.0
+    >>> variance([115,5,5,5],fromsample=0)
+    2268.75
+    >>> variance([115,5,5,-115])
+    8825.0
     """
     return _variance(mean(data), data, fromsample)
 
@@ -245,10 +261,10 @@ def _standard_dev (mean, data, fromsample):
     return math.sqrt(_variance(mean, data, fromsample))
 
 def standard_dev (data: Sequence[Number, ...],
-                  fromsample: bool = False) -> Number:
+                  fromsample: bool = True) -> Number:
     """
     Standard deviation (using the Actual Mean Method) for ungrouped data.
-    Set $fromsample to True if $data is a sample.
+    $fromsample default to True ($data is a sample, set to False for population).
     """
     return _standard_dev(mean(data), data, fromsample)
 
@@ -257,10 +273,10 @@ def _standard_error (mean, data, fromsample):
     return _standard_dev(mean, data, fromsample) / math.sqrt(len(data))
 
 def standard_error (data: Sequence[Number, ...],
-                    fromsample: bool = False) -> Number:
+                    fromsample: bool = True) -> Number:
     """
     Standard error (using the Actual Mean Method) for ungrouped data.
-    Set $fromsample to True if $data is a sample.
+    $fromsample default to True ($data is a sample, set to False for population).
     """
     return _standard_error(mean(data), data, fromsample)
 
@@ -296,7 +312,7 @@ def autogroup_perc_chunks (data_length: Number, perc: Number = 20) -> Number:
 def autogroup (chunks: Number,
                minvalue: Number,
                maxvalue: Number,
-               overlap: bool = False) -> Sequence[Sequence[Number,Number], ...]:
+               overlap: bool = False) -> Sequence[NumPair, ...]:
     """
     Returns class intervals in N $chunks from $minvalue to $maxvalue.
     $overlap (default: False) can be used for build overlapping intervals, e.g.
@@ -326,7 +342,7 @@ def autogroup (chunks: Number,
 
 class FrequencyPairs (Sequence):
     """Object for frequency pairs."""
-    def __init__ (self, data=[]):
+    def __init__ (self, data: Sequence[Sequence[Any,Number], ...] = ()):
         self._data = []
         for value, freq in data:
             self._data.append((value, freq))
@@ -350,14 +366,37 @@ class FrequencyPairs (Sequence):
     # ok: .index, .count (from Sequence)
     #XXX+TODO: add .insert / extend ??? add __setitem__ / __delitem__ ?
 
+    
 class IntervalDict:
     """
     Object for class intervals.
     """
+    @classmethod
+    def from_intervals (cls,
+                        data: Sequence[Sequence[NumPair, Sequence[Number, ...]], ...],
+                        overlap: bool = False):
+        """
+        Returns a new intervalDict from $data.
+        $overlap (default: False) has the same meaning as in __init__ and  autogroup()
+        >>> type(i)
+        (<class '__main__.IntervalDict'>
+        >>> i
+        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]})
+        >>> ii = IntervalDict.from_intervals(i.items())
+        >>> type(ii)
+        (<class '__main__.IntervalDict'>
+        >>> ii
+        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]})
+        """
+        c = cls(overlap=overlap)
+        for pair, seq in data:
+            c.add_interval(tuple(pair), list(seq))
+        return c
+
     def __init__ (self,
-                  intervals: Sequence[Sequence[Number,Number], ...] = (),
-                  data: None|Sequence[Number, ...] = None,
-                  trim : bool = False,
+                  intervals: Empty|Sequence[NumPair, ...] = (),
+                  data: None|Empty|Sequence[Number, ...] = None,
+                  trim: bool = False,
                   overlap: bool = False):
         """
         $intervals is a sequence of (min, max) pairs, filled with the optional values from $data.
@@ -414,7 +453,7 @@ class IntervalDict:
             raise IntervalError(f"value '{value}' not in intervals")
         del self._dict[(imin, imax)]
 
-    def __getitem__ (self, value: Number) -> Sequence[Sequence[Number,Number], Sequence[Number,...]]:
+    def __getitem__ (self, value: Number) -> Sequence[NumPair, Sequence[Number,...]]:
         """
         Returns the interval's class and values in which $value *may* belong or raises IntervalError.
         >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(0,40,4))
@@ -468,7 +507,7 @@ class IntervalDict:
     __str__ = __repr__
 
     def add_interval (self,
-                      interval: Sequence[Number, Number],
+                      interval: NumPair,
                       values: Sequence[Number, ...]) -> None:
         """
         Adds an $interval and the corresponding $values.
@@ -491,7 +530,7 @@ class IntervalDict:
         self._dict[tuple(interval)] = list(values)
         self._dict = dict(sorted(self._dict.items())) #XXX+TODO: to sort when get smt only?
 
-    def empty_interval (self, interval: Sequence[Number,Number]):
+    def empty_interval (self, interval: NumPair):
         """
         Removes all the values from $Interval. Raises IntervalError if $interval doesn't exist.
         >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
@@ -513,7 +552,7 @@ class IntervalDict:
         self._dict[target] = []
 
     def extend (self,
-                seq: Sequence[Number, ...],
+                seq: Empty|Sequence[Number, ...],
                 err: bool = True) -> None:
         """
         Adds $seq's values to their belonging intervals.
@@ -547,7 +586,7 @@ class IntervalDict:
                         self.remove_value(value)
                     raise e
 
-    def get_interval (self, value: Number) -> Sequence[Number,Number]:
+    def get_interval (self, value: Number) -> NumPair:
         """
         Returns the class interval in which $value belong or raises IntervalError.
         >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(5,40,4))
@@ -565,7 +604,7 @@ class IntervalDict:
                 return cls
         raise IntervalError(f"value '{value}' not in intervals")
 
-    def get_values (self, cls: Sequence[Number,Number]) -> Sequence[Number,...]:
+    def get_values (self, cls: NumPair) -> Sequence[Number,...]:
         """
         Returns the values belonging to the class interval $cls or raises IntervalError.
         >>> i = IntervalDict(((0,10),(11,30)), range(5,40,4), True)
@@ -587,7 +626,7 @@ class IntervalDict:
         raise IntervalError(f"class '{cls}' not found")
 
     @property
-    def intervals (self) -> Sequence[Sequence[Number,Number], ...]:
+    def intervals (self) -> Sequence[NumPair, ...]:
         """The class intervals."""
         return tuple(self._dict.keys())
 
@@ -605,7 +644,7 @@ class IntervalDict:
         """A bool, if the IntervalDict is an overlapping ones or not."""
         return self._overlap
 
-    def remove_interval (self, interval: Sequence[Number,Number]) -> None:
+    def remove_interval (self, interval: NumPair) -> None:
         """
         Removes $interval and its values or raises IntervalError.
         >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
@@ -693,7 +732,7 @@ class IntervalDict:
 
 
 def cumulative_freq (data: Sequence,
-                     limit: Number|Sequence[Number,Number], # but can works with appropriates Any
+                     limit: Number|NumPair, # but can works with appropriates Any
                      ftype:CumFreqT = CumFreqT.lt,
                      cmpfunc: Callable[[Any,Any], Sequence[bool,Number]] = lambda x,y:(x<=y,x)) -> Number:
     """
@@ -765,10 +804,10 @@ def cumulative_freq (data: Sequence,
 
 def freqs_from_intervals (data: IntervalDict) -> FrequencyPairs:
     """
-    Return frequencies as a FrequencyPairs from interval data.
-    >>> make_data_intervals([0,1,2], [(0,5),(6,10)])
+    Return frequencies as a FrequencyPairs from the $data IntervalDict.
+    >>> make_data_intervals([0,1,2],[(0,5),(6,10)])
     {(0, 5): [0, 1, 2], (6, 10): []}
-    >>> freqs_from_intervals(make_data_intervals([0,1,2], [(0,5),(6,10)]))
+    >>> freqs_from_intervals(make_data_intervals([0,1,2],[(0,5),(6,10)]))
     [(2.5, 3), (8.0, 0)]
     """
     freqs = FrequencyPairs()
@@ -816,8 +855,8 @@ def make_data_intervals_from_freq (data: FrequencyPairs,
                                    overlap=False) -> IntervalDict:
     """
     Returns an IntervalDict from $data frequencies with class intervals of $size.
-    $data is a sequence of pair in the the form of (lower_class_value, frequency_value), so
-    a class intervals will be, e.g. (lower_class_value, lower_class_value + $size),
+    $data is a FrequencyPairs or a sequence of pair in the the form of (lower_class_value, frequency_value),
+    so a class intervals will be, e.g. (lower_class_value, lower_class_value + $size),
     while its values ​​are the class midpoint (as many as frequency_value).
     $trim and $overlap has the same meaning as in in the IntervalDict constructor.
     NOTE: this is mainly a convenience function for some operations
@@ -831,12 +870,11 @@ def make_data_intervals_from_freq (data: FrequencyPairs,
         d.add_interval([class_lower, class_upper], [(class_lower + class_upper) / 2] * amount)
     return d
 
-def make_data_freq (data: Sequence[Number]) -> FrequencyPairs:
+def make_data_freq (data: Sequence[Number, ...]) -> FrequencyPairs:
     """
     Returns a FrequencyPairs from distinct measurements.
-    >>> from itertools import chain
-    >>> make_data_freq(chain(*[range(5), range(1,10,2)]))
-    [(0, 1), (1, 2), (2, 1), (3, 2), (4, 1), (5, 1), (7, 1), (9, 1)]
+    >>> make_data_freq([1,2,3,4,5,4,3,4,5,6,7,8])
+    [(1, 1), (2, 1), (3, 2), (4, 3), (5, 2), (6, 1), (7, 1), (8, 1)]
     """
     freqd = defaultdict(int)
     for value in data:
@@ -934,28 +972,6 @@ def median_class_and_cumfreq_at_value (data: FrequencyPairs,
 # grouped mean #
 ################
 
-def ugmean (data: Sequence[Number]) -> Number:
-    """
-    $data's mean for grouped data without class intervals (using the Direct Method).
-    NOTE: this function creates a discrete frequency distribution from $data, then
-    computes it's mean.
-    >>> ugmean([1,2,3])
-    2.0
-    >>> ugmean([1,2,3,10])
-    4.0
-    >>> d = [1,2,3,1,2]
-    >>> ugmean(d)
-    1.8
-    >>> gmean(d)
-    1.8
-    >>> mean(d)
-    1.8
-    """
-    tot = len(data)
-    return fgmean(make_data_freq(data))
-    #freqd = make_data_freq(data)
-    #return sum(i * f for i, f in freqd.items()) / sum(freqd.values())
-
 def fgmean (data: FrequencyPairs) -> Number:
     """
     $data's mean for grouped $data as FrequencyPairs-like objects (using the Direct Method).
@@ -986,11 +1002,12 @@ def igmean (data: IntervalDict) -> Number:
         total_freq += lv
     return total_class / total_freq
 
-def gmean (data:IntervalDict|FrequencyPairs|Sequence) -> Number:
+def gmean (data:IntervalDict|FrequencyPairs) -> Number:
     """
     Returns the mean of $data, which can be an IntervalDict, a FrequencyPairs or a sequence of values
     (in the latter case, make_data_freq() is applied to the sequence before the computation).
-    >>> data = list(sorted(chain(*[range(20),range(1,20,3), range(1,20,2),[0,1,2]*5])))
+    Raises TypeError for wrong $data types.
+    >>> data = list(sorted(itertools.chain(*[range(20),range(1,20,3), range(1,20,2),[0,1,2]*5])))
     >>> data
     [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 4, 4, 5, 5, 6,
      7, 7, 7, 8, 9, 9, 10, 10, 11, 11, 12, 13, 13, 13, 14, 15, 15, 16, 16, 17, 17, 18, 19, 19, 19]
@@ -1004,15 +1021,21 @@ def gmean (data:IntervalDict|FrequencyPairs|Sequence) -> Number:
     7.5673076923076925
     >>> gmean(freqs_from_intervals(i)) # fgmean
     7.5673076923076925
-    >>> gmean(list(chain(*(v for k,v in i.items())))) # ugmean
-    7.211538461538462
+    >>> type(dx), dx
+    (<class 'list'>, [(1, 10), (2, 21), (3, 20), (4, 26), (5, 20), (6, 4)])
+    >>> gmean(dx)
+    Traceback (most recent call last):
+    ...
+    TypeError: wrong data type: <class 'list'>
+    >>> gmean(FrequencyPairs(dx))
+    3.36633663366336
     """
     if isinstance(data, IntervalDict):
         return igmean(data)
     elif isinstance(data, FrequencyPairs):
         return fgmean(data)
     else:
-        return fgmean(make_data_freq(data))
+        raise TypeError(f"wrong data type: {type(data)}")
 
 
 ##################
@@ -1078,15 +1101,17 @@ def igmedian (data: IntervalDict, percentile=50) -> Number: # XXX+TODO: percenti
     class_size = median_class[1] - median_class[0]
     return lower_class_limit + ( ((observations / 2) - cum_freq) / class_freq ) * class_size
 
-def gmedian (data, percentile=50):
+def gmedian (data: IntervalDict|FrequencyPairs, percentile=50):
     """
     Returns the median for grouped data.
-    $data can be an IntervalDict, a FrequencyPairs or a sequence of values (in the latter case
-    make_data_freq() is applied to the sequence before the computation).
+    $data can be an IntervalDict or a FrequencyPairs object.
+    Raises TypeError for wrong $data types.
     >>> dx
     [(1, 10), (2, 21), (3, 20), (4, 26), (5, 20), (6, 4)]
-    >>> fgmedian(dx)
-    3
+    >>> gmedian(dx)
+    Traceback (most recent call last)
+    ...
+    TypeError: unknown data type: <class 'list
     >>> gmedian(FrequencyPairs(dx))
     3
     >>> i
@@ -1101,7 +1126,7 @@ def gmedian (data, percentile=50):
     elif isinstance(data, FrequencyPairs):
         return fgmedian(data, percentile)
     else:
-        return fgmedian(make_data_freq(data), percentile)
+        raise TypeError(f"unknown data type: {type(data)}")
 
 
 ################
@@ -1127,7 +1152,8 @@ def fgmode (data: Sequence[Sequence[Any,Any], ...]):
 def igmode_from_interval (seq, item):
     """
     Returns the mode of the $seq's $item interval.
-    NOTE: $item shold be the modal interval of $seq, otherwise the result can be pretty... wrong :D
+    NOTE_1: $seq must have an index() method.
+    NOTE_2: $item shold be the modal interval of $seq, otherwise the result can be pretty wrong :D
     >>> i
     {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}
     >>> igmode_from_interval(list(i.items()), ((0, 10), [1,4,7]))
@@ -1152,7 +1178,7 @@ def igmode_from_interval (seq, item):
 
 def igmode (data: IntervalDict):
     """
-    Returns the mode(s) of $data, in the form of [((cls, values), mode), ...].
+    Returns the mode(s) of the $data IntervalDict.
     >>> i
     {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}
     >>> igmode(i)
@@ -1174,11 +1200,27 @@ def igmode (data: IntervalDict):
 def gmode (data):
     """
     Returns the mode(s) for grouped data.
-    $data can be an IntervalDict or a FrequencyPairs-like object.
+    $data can be an IntervalDict or a FrequencyPairs object.
+    Raises TypeError for wrong $data types.
+    >>> dm, type(dm)
+    ([(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)], <class 'list'>)
+    >>> gmode(dm)
+    Traceback (most recent call last):
+    ...
+    TypeError: unknown data type: <class 'list'>
+    >>> gmode(FrequencyPairs(dm))
+    [(2, 7)]
+    >>> i, type(i)
+    ({(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}, <class '__main__.IntervalDict'>)
+    >>> gmode(i)
+    [(((10, 20), [10, 13, 16, 19]), 15.0)]
     """
     if isinstance(data, IntervalDict):
         return igmode(data)
-    return fgmode(data)
+    elif isinstance(data, FrequencyPairs):
+        return fgmode(data)
+    else:
+        raise TypeError(f"unknown data type: {type(data)}")
 
 
 ####################
@@ -1197,19 +1239,34 @@ def _gvariance (mean: Number,
     tot_score = 0
     tot_freq = 0
     for score, f in data:
-        tot_score += f * (deviation(mean, score)**2)
+        tot_score += f * (deviation(score, mean)**2)
         tot_freq += f
     return tot_score / (tot_freq - (1 if fromsample else 0))
 
 def gvariance (data: IntervalDict|FrequencyPairs,
-               fromsample: bool = False) -> Number:
+               fromsample: bool = True) -> Number:
     """
     Returns the variance of $data for grouped data (using the Actual Mean Method).
-    $data can be an IntervalDict of a FrequencyPairs-like object.
-    Set $fromsample to True if $data is a sample.
+    $data can be an IntervalDict or a FrequencyPairs object.
+    Raises TypeError for wrong $data types.
+    $fromsample default to True ($data is a sample, set to False for population).
+    >>> i
+    {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}
+    >>> gvariance(i)
+    126.92307692307692
+    >>> dx
+    [(1, 10), (2, 21), (3, 20), (4, 26), (5, 20), (6, 4)]
+    >>> gvariance(dx)
+    Traceback (most recent call last):
+    ...
+    TypeError: unknown data type: <class 'list'>
+    >>> gvariance(FrequencyPairs(dx))
+    1.8944554455445546
     """
     if isinstance(data, IntervalDict):
         data = freqs_from_intervals(data)
+    elif not isinstance(data, FrequencyPairs):
+        raise TypeError(f"unknown data type: {type(data)}")
     mean = fgmean(data)
     return _gvariance(mean, data, fromsample)
 
@@ -1219,13 +1276,24 @@ def gvariance (data: IntervalDict|FrequencyPairs,
 ##############################
 
 def gstandard_dev (data: IntervalDict|FrequencyPairs,
-                   fromsample: bool = False) -> Number:
+                   fromsample: bool = True) -> Number:
     """
     Returns the standard deviation (using the Actual Mean Method) for grouped data.
-    $data can be an IntervalDict of a FrequencyPairs-like object.
-    Set $fromsample to True if $data is a sample.
+    $data can be an IntervalDict of a FrequencyPairs object.
+    $fromsample default to True ($data is a sample, set to False for population).
+    Raises TypeError for wrong $data types.
+    >>> i
+    {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}
+    >>> gstandard_dev(i)
+    10.05037815259212
+    >>> dm
+    [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
+    >>> gstandard_dev(FrequencyPairs(dm))
+    1.3088765773505318
     """
-    return math.sqrt(gvariance(data, fromsample))
+    if isinstance(data, (IntervalDict, FrequencyPairs)):
+        return math.sqrt(gvariance(data, fromsample))
+    raise TypeError(f"unknown data type: {type(data)}")
 
 
 ##########################
@@ -1233,16 +1301,66 @@ def gstandard_dev (data: IntervalDict|FrequencyPairs,
 ##########################
 
 def gstandard_error(data: IntervalDict|FrequencyPairs,
-                    fromsample: bool = False) -> Number:
+                    fromsample: bool = True) -> Number:
     """
     Standard error (using the Actual Mean Method) for grouped data.
-    $data can be an IntervalDict of a FrequencyPairs-like object.
-    Set $fromsample to True if $data is a sample.
+    $data can be an IntervalDict of a FrequencyPairs object.
+    Raises TypeError for wrong $data types.
+    $fromsample default to True ($data is a sample, set to False for population).
+    >>> i
+    {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}
+    >>> gstandard_error(i)
+    3.00204754886765
+    >>> dm
+    [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
+    >>> gstandard_error(FrequencyPairs(dm))
+    0.28526303651191826
     """
     if isinstance(data, IntervalDict):
         data = freqs_from_intervals(data)
+    elif not isinstance(data, FrequencyPairs):
+        raise TypeError(f"unknown data type: {type(data)}")
     fsum = sum(f for v, f in data)
     return gstandard_dev(data, fromsample) / math.sqrt(fsum)
+
+###################
+# grouped z-score #
+###################
+
+def gzscore (value: Number, data: IntervalDict|FrequencyPairs, fromsample=True):
+    """
+    Returns the z-score (or standard score) of $value from the grouped data $data, i.e. the position
+    of $value in terms of its distance from the mean of $data, measured in standard deviation units.
+    $fromsample default to True ($data is a sample, set to False for population).
+    >>> f = FrequencyPairs(make_data_freq([1,2,3,4,5,6,7]))
+    >>> gzscore(1,f)
+    -1.3887301496588271
+    >>> gzscore(4,f)
+    0.0
+    >>> gzscore(7,f)
+    1.3887301496588271
+    """
+    m = gmean(data)
+    s = gstandard_dev(data, fromsample)
+    return deviation(value, m) / s
+
+def gzscores (data: IntervalDict|FrequencyPairs, fromsample=True):
+    """
+    Returns (for grouped data) a list of z-scores for the values of $data.
+    $fromsample default to True ($data is a sample, set to False for population).
+    >>> gzscores(FrequencyPairs(make_data_freq([1,2,3,4,5,6,7])))
+    [-1.3887301496588271, -0.9258200997725514, -0.4629100498862757,
+     0.0, 0.4629100498862757, 0.9258200997725514, 1.3887301496588271]
+    >>> i
+    {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}
+    >>> gzscores(i)
+    [-1.297298609797946, -0.40967324519935144, 0.4779521193992431, 1.3655774839978376]
+    """
+    if isinstance(data, IntervalDict):
+        data = freqs_from_intervals(data)
+    m = gmean(data)
+    s = gstandard_dev(data, fromsample)
+    return list(deviation(x, m) / s for x, _ in data.items())
 
 
 ################
@@ -1363,39 +1481,28 @@ if __name__ == '__main__':
 
     EXAMPLES = ''' EXAMPLES:
     
-    >>> variance([5,5,5,5])
-    0.0
-    >>> variance([2,3,4,5])
-    1.25
-    >>> variance([115,5,5,5])
-    2268.75
-    >>> variance([115,5,5,-115])
-    6618.75
+
 
     
     >>> mean([1,2,3,4,5,6])
     3.5
-    >> gmean([1,2,3,4,5,6])
+    >>> gmean(make_data_freq([1,2,3,4,5,6]))
     3.5
     >>> mean([1,1,1,1,1,2,3,4,5,6,99])
-    11.272727272727273
-    >>> gmean([1,1,1,1,1,2,3,4,5,6,99])
     11.272727272727273
     >>> igmean(make_data_intervals([1,1,1,1,1,2,3,4,5,6,99], [(0,10),(10,20),(20,100)]))
     10.0
 
-    
-    >>> make_data_intervals(chain(*[range(10),range(1,10,3), range(1,10,2),(0,1,2)]), [(0,5),(6,10)])
+    >>> make_data_intervals(itertools.chain(*[range(10),range(1,10,3), range(1,10,2),(0,1,2)]), [(0,5),(6,10)])
     {(0, 5): [0, 1, 2, 3, 4, 5, 1, 4, 1, 3, 5, 0, 1, 2], (6, 10): [6, 7, 8, 9, 7, 7, 9]}
-    >>> freqs_from_intervals(make_data_intervals(chain(*[range(10),range(1,10,3), range(1,10,2),(0,1,2)]), [(0,5),(6,10)]))
+    >>> freqs_from_intervals(make_data_intervals(itertools.chain(*[range(10),range(1,10,3), range(1,10,2),(0,1,2)]), [(0,5),(6,10)]))
     [(2.5, 14), (8.0, 7)]
-    >>> fgmean(freqs_from_intervals(make_data_intervals(chain(*[range(10),range(1,10,3), range(1,10,2),(0,1,2)]), [(0,5),(6,10)])))
+    >>> fgmean(freqs_from_intervals(make_data_intervals(itertools.chain(*[range(10),range(1,10,3), range(1,10,2),(0,1,2)]), [(0,5),(6,10)])))
     4.333333333333333
-    >>> igmean(make_data_intervals(chain(*[range(10),range(1,10,3), range(1,10,2),(0,1,2)]), [(0,5),(6,10)]))
+    >>> igmean(make_data_intervals(itertools.chain(*[range(10),range(1,10,3), range(1,10,2),(0,1,2)]), [(0,5),(6,10)]))
     4.333333333333333
-
     
-    >>> data = list(sorted(chain(*[range(20),range(1,20,3), range(1,20,2),[0,1,2]*5])))
+    >>> data = list(sorted(itertools.chain(*[range(20),range(1,20,3), range(1,20,2),[0,1,2]*5])))
     >>> data
     [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 4, 4, 5, 5, 6,
      7, 7, 7, 8, 9, 9, 10, 10, 11, 11, 12, 13, 13, 13, 14, 15, 15, 16, 16, 17, 17, 18, 19, 19, 19]
@@ -1408,14 +1515,13 @@ if __name__ == '__main__':
     >>> type(i)
     <class '__main__.IntervalDict'>
     >>> gvariance(i)
-    33.82720044378698
+    34.490478883861236
     >>> gstandard_dev(i)
-    5.8161155803325455
+    5.872859515079621
     >>> gstandard_error(i)
-    0.8065501134197689
-    >>> gstandard_error(i, fromsample=True)
     0.8144190813544674
-
+    >>> gstandard_error(i, fromsample=False)
+    0.8065501134197689
 
     >>> # https://flexbooks.ck12.org/cbook/ck-12-cbse-math-class-10/section/14.3/primary/lesson/median-of-grouped-data/
     >>> x = list(range(0,50,10))
