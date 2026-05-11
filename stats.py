@@ -290,13 +290,13 @@ def mode (data: Sequence[Any, ...]) -> Sequence[Any, ...]:
     return list(p[0] for p in mad_max(c.items(), key=lambda x:x[1]))
 
 
-#XXX alpha di Cronbach
-#XXX: sum_of_squares,variance,std,ste: add choice for central point (mean, median or mode) [everywhere a central point calc]
-#XXX+TODO: grouped version of deviation, aad, cv, covariance, correlation_*,  sum_of_squares 
-#XXX+TODO: ...e poi "Scala T", stein, ecc
-#XXX+TODO: rango percentile
+#XXX alpha di Cronbach,  rango percentile, "Scala T", scala stein, 
+#XXX: tss,variance,std,ste: add choice for central point (mean, median or mode) [everywhere a central point calc]
+#XXX+TODO: grouped version of deviation, aad, cv, covariance, correlation_*,  tss 
 
-def sum_of_squares (data):
+def tss (data: Sequence[Number, ...]) -> Number:
+    """
+    Returns the total sum of squares of $data."""
     m = mean(data)
     return sum(deviation(x, m)**2 for x in data)
 
