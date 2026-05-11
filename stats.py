@@ -47,6 +47,11 @@ class CumFreqT(Enum):
     lt = 0
     gt = 1
 
+class CPType(Enum):
+    mean = 0
+    median = 1
+    mode = 2
+
 class StrCls(type):
     """Pretty print class names."""
     def __str__(self):
@@ -90,6 +95,29 @@ class IntervalError(Exception):
 # general use #
 ###############
 
+def binomial_ditribution (n, x, p, q):
+    """
+    >>> binomial_ditribution(10,5,0.5,0.5)
+    0.24609375
+    >>> binomial_ditribution(10,1,0.5,0.5)
+    0.009765625
+    >>> binomial_ditribution(10,10,0.5,0.5)
+    0.0009765625
+    >>> binomial_ditribution(10,6,0.5,0.5)
+    0.205078125
+    >>> binomial_ditribution(10,4,0.5,0.5)
+    0.205078125
+    >>> binomial_ditribution(10,7,0.5,0.5)
+    0.1171875
+    >>> binomial_ditribution(10,7,1/3,2/3)
+    0.016257684296093065
+    >>> binomial_ditribution(15,6,1/5,4/5)
+    0.04299262263296003
+    """
+    return (math.factorial(n) / (math.factorial(x) * math.factorial(n-x))
+            * (p**x)
+            * (q**(n-x)))
+
 def get_pop (size: Number,
              minval: Number,
              maxval: Number) -> Sequence[Number, ...]:
@@ -107,6 +135,99 @@ def get_sample (population: Sequence[Number, ...],
 # for ungrouped data #
 ######################
 
+def aad (data: Sequence[Number, ...], method: CPType = CPType.mean) -> Number|Sequence[Number, ...]:
+    # aka scarto medio assoluto / scarto medio semplice
+    """
+    Returns the average absolute deviation of $data using $method as central point.
+    Raises ValueErro for wrond $ethod type.
+    NOTE: if $method is CPType.mode returns always a list of (possibly only one) modes and,
+          if $data is multimodal, returns a list of values (one for each mode).
+    >>> c = [2, 2, 3, 4, 14]
+    >>> aad(c)
+    3.6
+    >>> aad(c, CPType.median)
+    2.8
+    >>> aad(c, CPType.mode)
+    [3.0]
+    >>> c += [4]
+    >>> aad(c, CPType.mode)
+    [2.8333333333333335, 2.5]
+    >>>
+    """
+    if method == CPType.mode:
+        modes = mode(data)
+        values = []
+        for m in modes:
+            values.append(sum(abs(x - m) for x in data) / len(data))
+        return values
+    else:
+        if method == CPType.mean:
+            m = mean(data)
+        elif method == CPType.median:
+            m = median(data)
+        else:
+            raise ValueError(f"unknown method '{method}'")
+        return sum(abs(x - m) for x in data) / len(data)
+
+def correlation_pearson (x: Sequence[Number, ...],
+                         y: Sequence[Number, ...],
+                         fromsample: bool = True) -> Number:
+    """Pearson's correlation for linear relationship between variables."""
+    n = len(x)
+    assert n == len(y)
+    if fromsample:
+        prod = sum(xi * yi for xi, yi in zip(x, y))
+        stdx = standard_dev(x, fromsample)
+        stdy = standard_dev(y, fromsample)
+        return (prod - (n * mean(x) * mean(y))) /  ((n - 1) * stdx * stdy)
+    else:
+        return covariance(x, y, fromsample) / (standard_dev(x, fromsample) * standard_dev(y, fromsample))
+
+def correlation_z (x: Sequence[Number, ...],
+                   y: Sequence[Number, ...],
+                   fromsample: bool = True) -> Number:
+    """Correlation using z-scores."""
+    n = len(x)
+    assert n == len(y)
+    zx = zscores(x, fromsample)
+    zy = zscores(y, fromsample)
+    return sum(xi * yi for xi,yi in zip(zx, zy)) / (n - (1 if fromsample else 0))
+
+def covariance (data1: Sequence[Number, ...],
+                data2: Sequence[Number, ...],
+                fromsample: bool = True) -> Number:
+    """
+    >>> x = (2,5,6,8,9); y = (4,3,7,5,6)
+    >>> covariance(x,y)
+    2.25
+    >>> covariance(x,y,0)
+    1.8
+    >>> covariance(x,x)
+    7.5
+    >>> variance(x)
+    7.5
+    """
+    len1 = len(data1)
+    assert len1 == len(data2)
+    n = len1 - 1 if fromsample else len1
+    m1 = mean(data1)
+    m2 = mean(data2)
+    return sum(deviation(x1, m1) * deviation(x2, m2) for x1,x2 in zip(data1, data2)) / n
+
+def cv (data: Sequence[Number, ...], fromsample: bool = True, absolute: bool = False): #XXX+TODO: grouped version
+    """
+    Returns the coefficient of variation (or, relative standard deviation - RSD) of $data.
+    If $absolute is True, uses the absolute value of the mean.
+    >>> cv([90, 100, 110])
+    0.1
+    >>> cv([1, 5, 6, 8, 10, 40, 65, 88])
+    1.1804252100400296
+    >>> cv([1, 5, 6, 8, 10, 40, 65, 88], fromsample=False)
+    1.1041866766701145
+    """
+    af = abs if absolute else lambda x:x
+    return standard_dev(data, fromsample) / af(mean(data))
+
 def deviation (score: Number, mean: Number) -> Number:
     """Deviation of $score from the $mean."""
     return score - mean
@@ -115,7 +236,7 @@ def mean (group: Sequence[Number, ...]) -> Number:
     """$group's mean for ungrouped data."""
     return sum(group) / len(group)
 
-def _median (data: Sequence):
+def _median (data: Sequence[Number, ...]) -> Number:
     """
     Returns the median of $data for ungrouped data, assuming data is a sorted sequence
     supporting the __len__ and __getitem__ methods.
@@ -129,7 +250,7 @@ def _median (data: Sequence):
         return data[int(n / 2)]
     return (data[int(n / 2) - 1] + data[int(n / 2)]) / 2
 
-def median (data: Sequence, percentile=50):
+def median (data: Sequence[Number, ...], percentile: Number = 50) -> Number:
     """
     Returns the median of $data for ungrouped data at the target $percentile (default: 50),
     assuming data is a sorted sequence supporting the __len__ and __getitem__ methods.
@@ -168,70 +289,16 @@ def mode (data: Sequence[Any, ...]) -> Sequence[Any, ...]:
         c[v] += 1
     return list(p[0] for p in mad_max(c.items(), key=lambda x:x[1]))
 
-#XXX+TODO: def scarto semplice medio (anche se meno usato della varianza) https://it.wikipedia.org/wiki/Scarto_medio_assoluto
-# ...e vedere se farlo anche per grouped data
+
 #XXX alpha di Cronbach
-#XXX: variance,std,ste: add choice for central point (mean, median or mode)
-
-
-def zscore (value: Number, data: Sequence, fromsample=True):
-    """
-    Returns the z-score (or standard score) of $value from $data, i.e. the position of $value
-    in terms of its distance from the mean, measured in standard deviation units.
-    $fromsample default to True ($data is a sample, set to False for population).
-    """
-    m = mean(data)
-    s = standard_dev(data, fromsample)
-    return deviation(value, m) / s
-
-def zscores (data: Sequence, fromsample=True):
-    """
-    Returns a list of z-scores for the values of $data.
-    $fromsample default to True ($data is a sample, set to False for population).
-    """
-    m = mean(data)
-    s = standard_dev(data, fromsample)
-    return list(deviation(x, m) / s for x in data)
-
-#XXX
-def correlation_raw(data1, data2):
-    len1, len2 = len(data1), len(data2)
-    assert len1 == len2
-    # ....?????
-
-#XXX
-def correlation_bp(data1, data2):
-    """correlation using the Bravais-Pearson method."""
-    len1, len2 = len(data1), len(data2)
-    assert len1 == len2
-    z1 = zscores(data1)
-    z2 = zscores(data2)
-    return sum(x * y for x,y in zip(z1, z2)) / len1
-
-#XXX
-def correlation_cov(data1, data2):
-    """correlation using covariance"""
-    len1, len2 = len(data1), len(data2)
-    assert len1 == len2
-    z1 = zscores(data1)
-    z2 = zscores(data2)
-    return sum(x * y for x,y in zip(z1, z2)) / len1
-
-#XXX
-def covariance (data1, data2):
-    len1, len2 = len(data1), len(data2)
-    assert len1 == len2
-    m1 = mean(data1)
-    m2 = mean(data2)
-    return sum(deviation(x1, m1) * deviation(x2, m2) for x1,x2 in zip(data1, data2)) / len1
-
-#XXX
-def _correlation (a,b): # correlation check
-    return covariance(a,b) / (standard_dev(a) * standard_dev(b))
-
+#XXX: sum_of_squares,variance,std,ste: add choice for central point (mean, median or mode) [everywhere a central point calc]
+#XXX+TODO: grouped version of deviation, aad, cv, covariance, correlation_*,  sum_of_squares 
 #XXX+TODO: ...e poi "Scala T", stein, ecc
-
 #XXX+TODO: rango percentile
+
+def sum_of_squares (data):
+    m = mean(data)
+    return sum(deviation(x, m)**2 for x in data)
 
 def _variance (mean: Number,
                data: Sequence[Number, ...],
@@ -280,6 +347,24 @@ def standard_error (data: Sequence[Number, ...],
     """
     return _standard_error(mean(data), data, fromsample)
 
+def zscore (value: Number, data: Sequence, fromsample: bool = True):
+    """
+    Returns the z-score (or standard score) of $value from $data, i.e. the position of $value
+    in terms of its distance from the mean, measured in standard deviation units.
+    $fromsample default to True ($data is a sample, set to False for population).
+    """
+    m = mean(data)
+    s = standard_dev(data, fromsample)
+    return deviation(value, m) / s
+
+def zscores (data: Sequence, fromsample: bool = True):
+    """
+    Returns a list of z-scores for the values of $data.
+    $fromsample default to True ($data is a sample, set to False for population).
+    """
+    m = mean(data)
+    s = standard_dev(data, fromsample)
+    return list(deviation(x, m) / s for x in data)
 
 ####################
 # for grouped data #
@@ -1049,6 +1134,10 @@ def fgmedian (data: FrequencyPairs, percentile=50) -> Number:
     >>> data = [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
     >>> fgmedian(data)
     2.0
+    >>> fgmedian(data, 75)
+    3.0
+    >>> fgmedian(data, 25)
+    1.0
     >>> freqs_get_class(dm, fgmedian(dm))
     (2, 7)
     """
@@ -1057,15 +1146,16 @@ def fgmedian (data: FrequencyPairs, percentile=50) -> Number:
         counter[c] = f
     return median(list(counter.elements()), percentile)
 
-def igmedian (data: IntervalDict, percentile=50) -> Number: # XXX+TODO: percentile here too
+def igmedian (data: IntervalDict, percentile=50) -> Number:
     """
     Returns the median (for grouped data) from the Intervaldict $data.
-    XXX: $percentile ignored at this time.
     >>> i = make_data_intervals_from_freq([(0,3),(5,2),(10,5)], 5, overlap=True)
     >>> i
     {(0, 5): [2.5, 2.5, 2.5], (5, 10): [7.5, 7.5], (10, 15): [12.5, 12.5, 12.5, 12.5, 12.5]}
     >>> igmedian(i)
     10.0
+    >>> igmedian(i, percentile=25)
+    8.333333333333334
     >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
     >>> i
     {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
@@ -1090,10 +1180,12 @@ def igmedian (data: IntervalDict, percentile=50) -> Number: # XXX+TODO: percenti
     {4: 10, 4.5: 18, 5.0: 22, 5.5: 25, 6.0: 40, 6.5: 15, 7.0: 10, 7.5: 8, 8.0: 7}
     >>> igmedian(make_data_intervals_from_freq(d.items(), 0.5, overlap=True))
     6.03125
+    >>> igmedian(make_data_intervals_from_freq(d.items(), 0.5, overlap=True), percentile=75)
+    5.25
     """
     # begin
     observations = data.length
-    median_class, cum_freq = median_class_and_cumfreq(data.items(), vfunc=lambda x:len(x))
+    median_class, cum_freq = median_class_and_cumfreq(data.items(), percentile, vfunc=lambda x:len(x))
     class_freq = len(data.get_values(median_class))
     # get the cumulative freq just before the median class:
     cum_freq = cumulative_freq(data.items(), median_class, cmpfunc=lambda x,y:(x[0]<y,len(x[1])))
