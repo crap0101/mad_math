@@ -20,6 +20,7 @@
 from collections import Counter, defaultdict
 from collections.abc import Callable, ItemsView, Sequence
 from enum import Enum
+import itertools
 import math
 from numbers import Number
 import operator
@@ -173,7 +174,18 @@ def aad (data: Sequence[Number, ...], method: CPType = CPType.mean) -> Number|Se
 def correlation_pearson (x: Sequence[Number, ...],
                          y: Sequence[Number, ...],
                          fromsample: bool = True) -> Number:
-    """Pearson's correlation for linear relationship between variables."""
+    """
+    Pearson's correlation for linear relationship between variables.
+    NOTE: can raise ZeroDivisonError if at least one of the inputs is constant.
+    >>> import statistics
+    >>> x = (2,5,6,8,9); y = (4,3,7,5,6)
+    >>> statistics.correlation(x,y)
+    0.5196152422706631
+    >>> correlation_pearson(x,y)
+    0.5196152422706631
+    >>> rs(x,y)
+    0.5196152422706631
+    """
     n = len(x)
     assert n == len(y)
     if fromsample:
@@ -187,7 +199,15 @@ def correlation_pearson (x: Sequence[Number, ...],
 def correlation_z (x: Sequence[Number, ...],
                    y: Sequence[Number, ...],
                    fromsample: bool = True) -> Number:
-    """Correlation using z-scores."""
+    """
+    Return the correlation between $x and $y data using z-scores.
+    NOTE: can raise ZeroDivisonError if at least one of the inputs is constant.
+    >>> x = (2,5,6,8,9); y = (4,3,7,5,6)
+    >>> correlation_z(x,y)
+    0.5196152422706632
+    >>> correlation_pearson(x,y)
+    0.5196152422706631
+    """
     n = len(x)
     assert n == len(y)
     zx = zscores(x, fromsample)
@@ -258,6 +278,33 @@ def deviation (score: Number, mean: Number) -> Number:
     return score - mean
 
 
+def kendall_tau (x: Sequence[Number, ...],
+                 y: Sequence[Number, ...]) -> Number:
+    """
+    Returns the Kendall rank correlation coefficient (Kendall's τ coefficient)
+    for $x and $y data samples.
+    NOTE: ties are considered discordant (tau-a).
+    >>> x = (2,5,6,8,9); y = (4,3,7,5,6)
+    >>> kendall_tau(x,y)
+    0.4
+    >>> kendall_tau(x,x)
+    1.0
+    >>> kendall_tau(x,list(reversed(x)))
+    -1.0
+    >>> rs(x,y)
+    0.5196152422706631
+    >>> from scipy import stats
+    >>> stats.kendalltau(x,y)
+    SignificanceResult(statistic=0.39999999999999997, pvalue=0.48333333333333334)
+    """
+    n = len(x)
+    assert n == len(y)
+    joint = list(sorted(zip(x,y), key=operator.itemgetter(0)))
+    comb = itertools.combinations(joint, 2)
+    s = sum(1 if item[1][1] > item[0][1] else - 1 for item in comb)
+    return s / (n*(n-1)/2)
+
+
 def mean (group: Sequence[Number, ...]) -> Number:
     """$group's mean for ungrouped data."""
     return sum(group) / len(group)
@@ -322,6 +369,7 @@ def rs (x: Sequence[Number, ...],
         y: Sequence[Number, ...]) -> Number:
     """
     Returns the Spearman's rank correlation coefficient (or Spearman's ρ (rho)).
+    NOTE: can raise ZeroDivisonError if at least one of the inputs is constant.
     >>> x = (2,5,6,8,9); y = (4,3,7,5,6)
     >>> rs(x,y)
     0.5196152422706631
@@ -393,7 +441,7 @@ def standard_error (data: Sequence[Number, ...],
     return _standard_error(mean(data), data, fromsample)
 
 
-#XXX rango percentile, "Scala T", scala stein, 
+#XXX Fisher's F distribution, rango percentile, "Scala T", scala stein, ¿Cohen's kappa?, 
 #XXX: tss,rs,variance,std,ste: add choice for central point (mean, median or mode) [everywhere a central point calc]
 #XXX+TODO: grouped version of deviation, aad, cv, covariance, correlation_*,  tss 
 
@@ -406,11 +454,66 @@ def tss (data: Sequence[Number, ...]) -> Number:
     return sum(deviation(x, m)**2 for x in data)
 
 
+def ttest_ind (x: Sequence[Number, ...],
+               y: Sequence[Number, ...]) -> Number:
+    """
+    Returns the value of a indipendent t-test between sample $x and sample $y.
+    >>> xs = [4,5,7,6,9]
+    >>> ys = [3,8,6,4,7]
+    >>> ttest_ind(xs,ys)
+    0.4743416490252574
+    >>> from scipy import stats
+    >>> stats.ttest_ind(xs,ys)
+    Ttest_indResult(statistic=0.47434164902525733, pvalue=0.6479336011632197)
+    """
+    return (mean(x) - mean(y)) / math.sqrt(standard_dev(x)**2 / len(x) + standard_dev(y)**2 / len(y))
+
+def ttest_os (sample: Sequence[Number, ...],
+              pop_mean: Number) -> Number:
+    """
+    Returns the value of a one-sample student's t-test on $sample,
+    in comparison with the value of the population's mean $pop_mean.
+    >>> x = (2,5,6,8,9); y = (4,3,7,5,6)
+    >>> mean(x)
+    6.0
+    >>> ttest_os(x, 6)
+    0.0
+    >>> ttest_os(x, 16)
+    -8.16496580927726
+    >>> from scipy import stats
+    >>> stats.ttest_1samp(x,16)[0]
+    -8.16496580927726
+    >>> pop = get_pop(1000, 1,1000)
+    >>> sample = get_sample(pop, 100)
+    >>> ttest_os(sample, mean(pop))
+    0.39930139905266826
+    >>> stats.ttest_1samp(sample, mean(pop))
+    TtestResult(statistic=0.39930139905266815, pvalue=0.6905312206402034, df=99)
+    """
+    return (mean(sample) - pop_mean) / standard_error(sample)
+
+def ttest_pair (x: Sequence[Number, ...],
+                y: Sequence[Number, ...]) -> Number:
+    """
+    Returns the value of a paired t-test on $x (the supposed pre test sample)
+    and $y (the post test sample).
+    >>> xs = [4,5,7,6,9]; ys = [3,8,6,4,7]
+    >>> ttest_pair(xs,ys)
+    0.6469966392206306
+    """
+    n = len(x)
+    assert n == len(y)
+    diffs = [xi - yi for xi,yi in zip(x,y)]
+    return ttest_os(diffs, 0)
+
+
 def _variance (mean: Number,
                data: Sequence[Number, ...],
                fromsample: bool) -> Number:
     """Variance for ungrouped data."""
     return sum(deviation(score, mean)**2 for score in data) / (len(data) - (1 if fromsample else 0))
+    #XXX+TODO: maybe to change later, after deciding if to add average mathods choice
+    #return tss(data) / (len(data) - (1 if fromsample else 0))
 
 def variance (data: Sequence[Number, ...],
               fromsample: bool = True) -> Number:
@@ -436,6 +539,15 @@ def zscore (value: Number, data: Sequence, fromsample: bool = True):
     Returns the z-score (or standard score) of $value from $data, i.e. the position of $value
     in terms of its distance from the mean, measured in standard deviation units.
     $fromsample default to True ($data is a sample, set to False for population).
+    >>> x = (2,5,6,8,9)
+    >>> mean(x)
+    6.0
+    >>> zscore(6,x)
+    0.0
+    >>> zscore(1,x)
+    -1.8257418583505538
+    >>> zscore(11,x)
+    1.8257418583505538
     """
     m = mean(data)
     s = standard_dev(data, fromsample)
@@ -445,6 +557,11 @@ def zscores (data: Sequence, fromsample: bool = True):
     """
     Returns a list of z-scores for the values of $data.
     $fromsample default to True ($data is a sample, set to False for population).
+    >>> x = (2,5,6,8,9)
+    >>> zscores(x)
+    [-1.4605934866804429, -0.3651483716701107, 0.0, 0.7302967433402214, 1.0954451150103321]
+    >>> zscores(list(range(5)))
+    [-1.2649110640673518, -0.6324555320336759, 0.0, 0.6324555320336759, 1.2649110640673518]
     """
     m = mean(data)
     s = standard_dev(data, fromsample)
