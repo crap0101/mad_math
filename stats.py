@@ -138,7 +138,7 @@ def get_sample (population: Sequence[Number, ...],
 def aad (data: Sequence[Number, ...], method: CPType = CPType.mean) -> Number|Sequence[Number, ...]:
     # aka scarto medio assoluto / scarto medio semplice
     """
-    Returns the average absolute deviation of $data using $method as central point.
+    Returns the Average Absolute Deviation of $data using $method as central point.
     Raises ValueErro for wrond $ethod type.
     NOTE: if $method is CPType.mode returns always a list of (possibly only one) modes and,
           if $data is multimodal, returns a list of values (one for each mode).
@@ -169,6 +169,7 @@ def aad (data: Sequence[Number, ...], method: CPType = CPType.mean) -> Number|Se
             raise ValueError(f"unknown method '{method}'")
         return sum(abs(x - m) for x in data) / len(data)
 
+
 def correlation_pearson (x: Sequence[Number, ...],
                          y: Sequence[Number, ...],
                          fromsample: bool = True) -> Number:
@@ -193,10 +194,12 @@ def correlation_z (x: Sequence[Number, ...],
     zy = zscores(y, fromsample)
     return sum(xi * yi for xi,yi in zip(zx, zy)) / (n - (1 if fromsample else 0))
 
-def covariance (data1: Sequence[Number, ...],
-                data2: Sequence[Number, ...],
+
+def covariance (x: Sequence[Number, ...],
+                y: Sequence[Number, ...],
                 fromsample: bool = True) -> Number:
     """
+    Returns the covariance of the $x and $y sets of data.
     >>> x = (2,5,6,8,9); y = (4,3,7,5,6)
     >>> covariance(x,y)
     2.25
@@ -207,16 +210,37 @@ def covariance (data1: Sequence[Number, ...],
     >>> variance(x)
     7.5
     """
-    len1 = len(data1)
-    assert len1 == len(data2)
-    n = len1 - 1 if fromsample else len1
-    m1 = mean(data1)
-    m2 = mean(data2)
-    return sum(deviation(x1, m1) * deviation(x2, m2) for x1,x2 in zip(data1, data2)) / n
+    xlen = len(x)
+    assert xlen == len(y)
+    n = xlen - 1 if fromsample else xlen
+    mx = mean(x)
+    my = mean(y)
+    return sum(deviation(xi, mx) * deviation(yi, my) for xi,yi in zip(x, y)) / n
 
-def cv (data: Sequence[Number, ...], fromsample: bool = True, absolute: bool = False): #XXX+TODO: grouped version
+
+def cronbach_a (data: Sequence[Sequence[Number, ...], ...]) -> Number:
     """
-    Returns the coefficient of variation (or, relative standard deviation - RSD) of $data.
+    Returns the Cronbach's alpha (α) for $data.
+    >>> d = [(5,4,5),(2,2,3),(4,3,4),(1,2,1),(3,4,3)]
+    >>> cronbach(d)
+    0.9183673469387755
+    >>> lst # from https://numiqo.com/statistics-calculator/reliability-analysis/cronbachs-alpha-calculator?example=Cronbachs_Alpha
+    [[5, 4, 3, 4, 5], [4, 4, 3, 3, 4], [5, 5, 4, 4, 5], [3, 3, 2, 3, 3], [4, 4, 3, 4, 4],
+    [5, 5, 4, 5, 5], [3, 3, 2, 2, 3], [4, 4, 3, 4, 5], [5, 5, 4, 5, 5], [4, 4, 3, 3, 4],
+    [4, 4, 3, 4, 4], [5, 5, 5, 5, 5], [2, 2, 1, 2, 2], [3, 4, 3, 3, 3], [5, 4, 5, 5, 4],
+    [4, 4, 4, 4, 4], [3, 3, 3, 3, 3], [4, 4, 4, 4, 5], [3, 3, 2, 2, 2], [5, 5, 4, 4, 5]]
+    >>> cronbach(lst)
+    0.9634082249375903
+    """
+    k = len(data[0])
+    vo = sum(variance(list(observations[n] for observations in data)) for n in range(k))
+    vs = variance(list(sum(scores) for scores in data))
+    return (k / (k - 1)) * (1 - ( vo / vs))
+
+
+def cv (data: Sequence[Number, ...], fromsample: bool = True, absolute: bool = False):
+    """
+    Returns the Coefficient of Variation (or, relative standard deviation - RSD) of $data.
     If $absolute is True, uses the absolute value of the mean.
     >>> cv([90, 100, 110])
     0.1
@@ -228,13 +252,16 @@ def cv (data: Sequence[Number, ...], fromsample: bool = True, absolute: bool = F
     af = abs if absolute else lambda x:x
     return standard_dev(data, fromsample) / af(mean(data))
 
+
 def deviation (score: Number, mean: Number) -> Number:
     """Deviation of $score from the $mean."""
     return score - mean
 
+
 def mean (group: Sequence[Number, ...]) -> Number:
     """$group's mean for ungrouped data."""
     return sum(group) / len(group)
+
 
 def _median (data: Sequence[Number, ...]) -> Number:
     """
@@ -272,6 +299,7 @@ def median (data: Sequence[Number, ...], percentile: Number = 50) -> Number:
         return data[x]
     return (data[x - 1] + data[x]) / 2
 
+
 def mode (data: Sequence[Any, ...]) -> Sequence[Any, ...]:
     """
     Return the mode(s) of $data
@@ -290,15 +318,93 @@ def mode (data: Sequence[Any, ...]) -> Sequence[Any, ...]:
     return list(p[0] for p in mad_max(c.items(), key=lambda x:x[1]))
 
 
-#XXX alpha di Cronbach,  rango percentile, "Scala T", scala stein, 
-#XXX: tss,variance,std,ste: add choice for central point (mean, median or mode) [everywhere a central point calc]
+def rs (x: Sequence[Number, ...],
+        y: Sequence[Number, ...]) -> Number:
+    """
+    Returns the Spearman's rank correlation coefficient (or Spearman's ρ (rho)).
+    >>> x = (2,5,6,8,9); y = (4,3,7,5,6)
+    >>> rs(x,y)
+    0.5196152422706631
+    >>> correlation_pearson(x,y)
+    0.5196152422706631
+    >>> rs(x,x)
+    1.0
+    >>> rs(x,list(reversed(x)))
+    -0.9333333333333333
+    """
+    assert len(x) == len(y)
+    mx = mean(x)
+    my = mean(y)
+    diffx = [xi - mx for xi in x]
+    diffy = [yi - my for yi in y]
+    return sum(dx * dy for dx,dy in zip(diffx, diffy)) / (
+        math.sqrt(sum(xd**2 for xd in diffx))
+        * math.sqrt(sum(yd**2 for yd in diffy)))
+
+def rs_simple (
+        x: Sequence[Number, ...],
+        y: Sequence[Number, ...]) -> Number:
+    """
+    Returns the Spearman's rank correlation coefficient, to be used when ranks are distinct integers (no ties).
+    Note: equal values receive the same rank.
+    >>> x = (2,5,6,8,9); y = (4,3,7,5,6)
+    >>> rs(x,y)
+    0.5196152422706631
+    >>> rs_simple(x,y)
+    0.6
+    >>> rs_simple(x,x)
+    1.0
+    >>> rs_simple(x,list(reversed(x)))
+    -1.0
+    """
+    n = len(x)
+    assert n == len(y)
+    dp = {p:[] for p in zip(x,y)}
+    sx = list(sorted(x))
+    sy = list(sorted(y))
+    for dx,dy in dp:
+        dp[(dx,dy)].append(sx.index(dx))
+        dp[(dx,dy)].append(sy.index(dy))
+    dsum = sum((rx - ry)**2 for rx,ry in dp.values())
+    return 1 - ((6 * dsum) / (n * (n**2 - 1)))
+
+
+def _standard_dev (mean, data, fromsample):
+    return math.sqrt(_variance(mean, data, fromsample))
+
+def standard_dev (data: Sequence[Number, ...],
+                  fromsample: bool = True) -> Number:
+    """
+    Standard deviation (using the Actual Mean Method) for ungrouped data.
+    $fromsample default to True ($data is a sample, set to False for population).
+    """
+    return _standard_dev(mean(data), data, fromsample)
+
+def _standard_error (mean, data, fromsample):
+    """Standard error for ungrouped data."""
+    return _standard_dev(mean, data, fromsample) / math.sqrt(len(data))
+
+def standard_error (data: Sequence[Number, ...],
+                    fromsample: bool = True) -> Number:
+    """
+    Standard error (using the Actual Mean Method) for ungrouped data.
+    $fromsample default to True ($data is a sample, set to False for population).
+    """
+    return _standard_error(mean(data), data, fromsample)
+
+
+#XXX rango percentile, "Scala T", scala stein, 
+#XXX: tss,rs,variance,std,ste: add choice for central point (mean, median or mode) [everywhere a central point calc]
 #XXX+TODO: grouped version of deviation, aad, cv, covariance, correlation_*,  tss 
 
 def tss (data: Sequence[Number, ...]) -> Number:
+    # aka devianza
     """
-    Returns the total sum of squares of $data."""
+    Returns the total sum of squares of $data.
+    """
     m = mean(data)
     return sum(deviation(x, m)**2 for x in data)
+
 
 def _variance (mean: Number,
                data: Sequence[Number, ...],
@@ -324,28 +430,6 @@ def variance (data: Sequence[Number, ...],
     """
     return _variance(mean(data), data, fromsample)
 
-def _standard_dev (mean, data, fromsample):
-    return math.sqrt(_variance(mean, data, fromsample))
-
-def standard_dev (data: Sequence[Number, ...],
-                  fromsample: bool = True) -> Number:
-    """
-    Standard deviation (using the Actual Mean Method) for ungrouped data.
-    $fromsample default to True ($data is a sample, set to False for population).
-    """
-    return _standard_dev(mean(data), data, fromsample)
-
-def _standard_error (mean, data, fromsample):
-    """Standard error for ungrouped data."""
-    return _standard_dev(mean, data, fromsample) / math.sqrt(len(data))
-
-def standard_error (data: Sequence[Number, ...],
-                    fromsample: bool = True) -> Number:
-    """
-    Standard error (using the Actual Mean Method) for ungrouped data.
-    $fromsample default to True ($data is a sample, set to False for population).
-    """
-    return _standard_error(mean(data), data, fromsample)
 
 def zscore (value: Number, data: Sequence, fromsample: bool = True):
     """
@@ -365,6 +449,7 @@ def zscores (data: Sequence, fromsample: bool = True):
     m = mean(data)
     s = standard_dev(data, fromsample)
     return list(deviation(x, m) / s for x in data)
+
 
 ####################
 # for grouped data #
