@@ -441,7 +441,7 @@ def standard_error (data: Sequence[Number, ...],
     return _standard_error(mean(data), data, fromsample)
 
 
-#XXX Fisher's F distribution, rango percentile, "Scala T", scala stein, ¿Cohen's kappa?, 
+#XXX Cohen's d, Fisher's F distribution, rango percentile, "Scala T", scala stein, ¿Cohen's kappa?, 
 #XXX: tss,rs,variance,std,ste: add choice for central point (mean, median or mode) [everywhere a central point calc]
 #XXX+TODO: grouped version of deviation, aad, cv, covariance, correlation_*,  tss 
 
