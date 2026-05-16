@@ -365,6 +365,35 @@ def mode (data: Sequence[Any, ...]) -> Sequence[Any, ...]:
     return list(p[0] for p in mad_max(c.items(), key=lambda x:x[1]))
 
 
+def rpb (data: Sequence[Sequence[bool, ...], ...],
+         index: Number,
+         fromsample=True) -> Number:
+    """
+    Returns the point biserial correlation coefficient of $data for the value at the given $index.
+    $data is a matrix-like sequence with rows representing subject's scores (S1..Sn)
+    for each questions (Q1..Qn) as in:
+          # Q1 Q2  Q3
+    data = [[0, 1, 1],  # S1
+            [1, 0, 0],  # S2
+            [1, 1, 1]]  # S3
+    """
+    true_group = []
+    false_group = []
+    for answers in data:
+        if answers[index]:
+            true_group.append(answers)
+        else:
+            false_group.append(answers)
+    true_scores = list(sum(a) for a in true_group)
+    true_mean = mean(true_scores)
+    false_scores = list(sum(a) for a in false_group)
+    false_mean = mean(false_scores)
+    stdev = standard_dev(true_scores + false_scores, fromsample=fromsample)
+    _n = len(data)
+    n = _n*(_n-1) if fromsample else _n**2
+    return ((true_mean - false_mean) / stdev) * math.sqrt( (len(true_scores) * len(false_scores)) / n)
+
+
 def rs (x: Sequence[Number, ...],
         y: Sequence[Number, ...]) -> Number:
     """
