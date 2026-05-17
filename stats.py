@@ -376,6 +376,43 @@ def rpb (data: Sequence[Sequence[bool, ...], ...],
     data = [[0, 1, 1],  # S1
             [1, 0, 0],  # S2
             [1, 1, 1]]  # S3
+    >>> import random
+    >>> data = [[random.randint(0,1) for _ in range(50)] for _ in range(30)]
+    >>> for i in range(20): data[i][9]=1
+    ... 
+    >>> for i in range(20,30): data[i][9]=0
+    ... 
+    >>> rpb(data, 9)
+    0.26415446986783264
+    >>> # https://numiqo.com/tutorial/point-biserial-correlation
+    >>> d
+    [(3, 1), (16, 0), (17, 1), (5, 0), (6, 1), (14, 0), (7, 1), (15, 1), (8, 0), (9, 1), (10, 1),
+    (11, 0), (12, 0), (13, 0), (18, 1), (19, 1), (20, 1), (21, 1), (22, 1)]
+    >>> stats.rpb(d,1)
+    0.30744718063327703
+    >>> # https://www.slideshare.net/slideshow/point-biserial-correlation-example/76462387
+    >>> lst
+    [(10, 0), (11, 0), (6, 0), (11, 0), (4, 1), (3, 1), (12, 0), (2, 1), (2, 1), (1, 1)]
+    >>> stats.rpb(lst,1)
+    -0.8945093352064536
+
+    >>> data
+    ([0, 75], [0, 80], [0, 72], [0, 85], [0, 78], [1, 90], [1, 88], [1, 95], [1, 85], [1, 92])
+    >>> stats.rpb(data,0)
+    0.8545976121261314
+    >>> from scipy.stats import pointbiserialr
+    >>> x = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1]
+    >>> y = [75, 80, 72, 85, 78, 90, 88, 95, 85, 92]
+    >>> pointbiserialr(x,y)
+    SignificanceResult(statistic=np.float64(0.8352690695845566), pvalue=np.float64(0.0026274884966152206))
+    >>> data
+    [[1, 24], [1, 25], [1, 22], [1, 19], [0, 11], [0, 18], [0, 15], [0, 12]]
+    >>> stats.rpb(data,0)
+    0.8830048834463289
+    >>> x=list(a[0] for a in data)
+    >>> y=list(a[1] for a in data)
+    >>> pointbiserialr(x,y)
+    SignificanceResult(statistic=np.float64(0.8597269536210951), pvalue=np.float64(0.0061946462395090955))
     """
     true_group = []
     false_group = []
