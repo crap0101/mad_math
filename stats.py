@@ -365,6 +365,63 @@ def mode (data: Sequence[Any, ...]) -> Sequence[Any, ...]:
     return list(p[0] for p in mad_max(c.items(), key=lambda x:x[1]))
 
 
+def percentile (data: Sequence[Any, ...], perc: Number) -> Any:
+    """
+    Returns the value of $data at the $perc percentile.
+    >>> percentile(range(1,50), 50)
+    25
+    >>> percentile(range(1,101), 50)
+    51
+    >>> import numpy as np
+    >>> np.percentile(range(1,101), 50)
+    50.5
+    """
+    if perc < 0 or perc > 100:
+        raise ValueError("'perc' must be in range(0, 100)")
+    if perc == 100:
+        return data[-1] # by definition
+    n = len(data)
+    idx = int(n * perc / 100)
+    return data[idx]
+
+def gpercentile_rank (data, item): # # XXX+TODO: FrequencyPairs|IntervalDict
+    """percentile rank for grouped data"""
+    raise NotImplementedError
+    if isinstance(data, FrequencyPairs):
+        raise NotImplementedError
+    elif isinstance(data, IntervalDict):
+        raise NotImplementedError
+    
+def percentile_rank (data: Sequence[Any, ...],
+                     item: Any,
+                     include: bool = False) -> Number:
+    """
+    Returns the percentile rank of $item from the (assumed ordered) data set $data.
+    If $include is True counts also values equals to $item.
+    Raises ValueError for out of range values.
+    >>> percentile_rank((6, 12, 13, 17, 17, 18, 20, 23, 24, 24, 25, 26, 27, 27, 30, 32, 33,), 25)
+    58.82352941176471
+    frm scipy.stats import percentileofscore
+    >>> percentileofscore((6, 12, 13, 17, 17, 18, 20, 23, 24, 24, 25, 26, 27, 27, 30, 32, 33,), 25)
+    64.70588235294119
+    >>> percentile_rank((6, 12, 13, 17, 17, 18, 20, 23, 24, 24, 25, 26, 27, 27, 30, 32, 33,), 25, True)
+    64.70588235294117
+    >>> percentile_rank(range(1,147), 12, True)
+    8.21917808219178
+    >>> percentile_rank(range(14), 7)
+    50.0
+    """
+    idx = data.index(item)
+    delta = 0
+    if include:
+        for delta, i in enumerate(data[idx:]):
+            if i != item:
+                break
+    return len(data[:idx+delta]) / len(data) * 100
+    #
+    #return (len(data[:data.index(item)]) + (0.5 * 1)) / len(data) * 100
+
+
 def rpb (data: Sequence[Sequence[bool, ...], ...],
          index: Number,
          fromsample=True) -> Number:
@@ -729,8 +786,8 @@ class IntervalDict:
                         data: Sequence[Sequence[NumPair, Sequence[Number, ...]], ...],
                         overlap: bool = False):
         """
-        Returns a new intervalDict from $data.
-        $overlap (default: False) has the same meaning as in __init__ and  autogroup()
+        Returns a new intervalDict from $data
+        $overlap (default: False) has the same meaning as in __init__ and  autogroup().
         >>> type(i)
         (<class '__main__.IntervalDict'>
         >>> i
@@ -743,7 +800,8 @@ class IntervalDict:
         """
         c = cls(overlap=overlap)
         for pair, seq in data:
-            c.add_interval(tuple(pair), list(seq))
+            c.add_interval(tuple(pair), list(seq), update=False)
+        c.update()
         return c
 
     def __init__ (self,
@@ -780,6 +838,7 @@ class IntervalDict:
             self._overlap_cmp = operator.le
         if data:
             self.extend(data, not bool(trim))     
+        self.update()
 
     def __delitem__ (self, value: Number) -> None:
         """
@@ -861,9 +920,12 @@ class IntervalDict:
 
     def add_interval (self,
                       interval: NumPair,
-                      values: Sequence[Number, ...]) -> None:
+                      values: Sequence[Number, ...],
+                      update=True) -> None:
         """
         Adds an $interval and the corresponding $values.
+        Set $update to False to avoid rebuilding the underlying dict (e.g. in case of multiple calls of this method
+        without operations on the values in between).
         NOTE: this causes the rebuild of the underlying dictionary.
         Raises IntervalError is $interval is already present.
         >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
@@ -881,7 +943,8 @@ class IntervalDict:
         if tuple(interval) in self._dict.keys():
             raise IntervalError(f'interval {interval} already present')
         self._dict[tuple(interval)] = list(values)
-        self._dict = dict(sorted(self._dict.items())) #XXX+TODO: to sort when get smt only?
+        if update:
+            self.update()
 
     def empty_interval (self, interval: NumPair):
         """
@@ -1083,6 +1146,12 @@ class IntervalDict:
                 return
         raise IntervalError(f"value '{value}' not in intervals")
 
+    def update (self) -> None:
+        """
+        Rebuilds the underlying dict to preserve sort order.
+        """
+        self._dict = dict(sorted(self._dict.items()))
+
 
 def cumulative_freq (data: Sequence,
                      limit: Number|NumPair, # but can works with appropriates Any
@@ -1090,7 +1159,7 @@ def cumulative_freq (data: Sequence,
                      cmpfunc: Callable[[Any,Any], Sequence[bool,Number]] = lambda x,y:(x<=y,x)) -> Number:
     """
     Returns the cumulative frequency for $data (a sequence supporting reversed()).
-    $data is assumed to be ordered.
+    NOTE: $data is assumed to be ordered.
     $limit is the boundary's class interval for the cumulative count.
     $ftype if the cumulative type:
         CumFreqT.lt for the "lesser than" cumulative frequency (default), or
@@ -1416,7 +1485,7 @@ def fgmedian (data: FrequencyPairs, percentile=50) -> Number:
 
 def igmedian (data: IntervalDict, percentile=50) -> Number:
     """
-    Returns the median (for grouped data) from the Intervaldict $data.
+    Returns the median of $data (for grouped data).
     >>> i = make_data_intervals_from_freq([(0,3),(5,2),(10,5)], 5, overlap=True)
     >>> i
     {(0, 5): [2.5, 2.5, 2.5], (5, 10): [7.5, 7.5], (10, 15): [12.5, 12.5, 12.5, 12.5, 12.5]}
@@ -1513,11 +1582,23 @@ def igmode_from_interval (seq, item):
     """
     Returns the mode of the $seq's $item interval.
     NOTE_1: $seq must have an index() method.
-    NOTE_2: $item shold be the modal interval of $seq, otherwise the result can be pretty wrong :D
+    NOTE_2: if $item is the modal interval of $seq, the returned mode(s) are the mode(s) of $seq.
     >>> i
     {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}
     >>> igmode_from_interval(list(i.items()), ((0, 10), [1,4,7]))
     15.0
+    >>> ind
+    {(10, 20): [0, 0, 0, 0, 0, 0, 0, 0], (20, 30): [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+     (30, 40): [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], (40, 50): [0, 0, 0, 0, 0]}
+    >>> igmode(ind)
+    [(((20, 30), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), 27.0)]
+    >>> for item in ind.items():
+    ...   print(igmode_from_interval(list(ind.items()), item), "<---", item)
+    ... 
+    90.0 <--- ((10, 20), [0, 0, 0, 0, 0, 0, 0, 0])
+    27.0 <--- ((20, 30), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    22.5 <--- ((30, 40), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    75.0 <--- ((40, 50), [0, 0, 0, 0, 0])
     """
     cls, values = item
     idx = seq.index(item)
@@ -1533,12 +1614,10 @@ def igmode_from_interval (seq, item):
     else:
         f2 = len(seq[idx + 1][1])
     return L + ( ( (fm - f1) / ( (fm - f1) + (fm - f2) ) ) * h )
-    #return L + ( ( (fm - f1) / (fm*2 - f1 - f2)) * h )
-    ## or #return L + ( ( (fm - f1) / (fm*2 - (f1 + f2)) ) * h )
 
 def igmode (data: IntervalDict):
     """
-    Returns the mode(s) of the $data IntervalDict.
+    Returns pair(s) of (modal_class, mode) of $data.
     >>> i
     {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]}
     >>> igmode(i)
@@ -1549,6 +1628,25 @@ def igmode (data: IntervalDict):
     {(0, 10): [1, 4, 7], (10, 20): [], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37, 35]}
     >>> igmode(i)
     [(((30, 40), [31, 34, 37, 35]), 32.0)]
+    >>> si # with fake values
+    [[(120, 125), [0, 0, 0]], [(125, 130), [0, 0, 0, 0, 0]], [(130, 135), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]],
+     [(135, 140), [0, 0, 0, 0, 0, 0]], [(140, 145), [0, 0, 0, 0, 0]]]
+    >>> ind = IntervalDict.from_intervals(si)
+    >>> igmode(ind)
+    [(((130, 135), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), 132.72727272727272)]
+    >>> for _ in 'abcde': ind +=136
+    ... 
+    >>> igmode(ind)
+    [(((130, 135), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), 135.0),
+     (((135, 140), [0, 0, 0, 0, 0, 0, 136, 136, 136, 136, 136]), 135.0)]
+    >> ind # fake values
+    {(10, 20): [0, 0, 0, 0, 0, 0, 0, 0], (20, 30): [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+     (30, 40): [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], (40, 50): [0, 0, 0, 0, 0]}
+    >>> igmode(ind)
+    [(((20, 30), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), 27.0)]
+    >>> ind = {(10, 20): [10, 10, 0, 0], (20, 30): [1, 0], (30, 40): [8], (40, 50): [1, 1, 0], (50, 60): [22, 1, 0, 0]}
+    >>> igmode(ind)
+    [(((10, 20), [10, 10, 0, 0]), 16.666666666666664), (((50, 60), [22, 1, 0, 0]), 52.0)]
     """
     lst = list(data.items())
     modal_classes = mad_max(lst, key=lambda x:len(x[1]))
