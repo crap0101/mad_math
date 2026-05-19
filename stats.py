@@ -324,11 +324,10 @@ def _median (data: Sequence[Number, ...]) -> Number:
         return data[int(n / 2)]
     return (data[int(n / 2) - 1] + data[int(n / 2)]) / 2
 
-def median (data: Sequence[Number, ...], percentile: Number = 50) -> Number:
+def median (data: Sequence[Number, ...]) -> Number:
     """
-    Returns the median of $data for ungrouped data at the target $percentile (default: 50),
+    Returns the median of $data for ungrouped data,
     assuming data is a sorted sequence supporting the __len__ and __getitem__ methods.
-    NOTE: percentile values limited between 1 and 99 (seems enough).
     >>> median((24, 34, 43, 50, 67, 78))
     46.5
     >>> median((23, 34, 43, 54, 56, 67, 78))
@@ -338,10 +337,8 @@ def median (data: Sequence[Number, ...], percentile: Number = 50) -> Number:
     >>> median(range(100), 75)
     74.5
     """
-    if (percentile <= 0) or (percentile >= 100):
-        raise ValueError(f"wrong percentile value: {percentile}")
     n = len(data)
-    x = int(percentile * n / 100)
+    x = int(n / 2)
     if n & 1:
         return data[x]
     return (data[x - 1] + data[x]) / 2
@@ -564,7 +561,7 @@ def standard_error (data: Sequence[Number, ...],
     return _standard_error(mean(data), data, fromsample)
 
 
-#XXX Cohen's d, Fisher's F distribution, rango percentile, "Scala T", scala stein, ¿Cohen's kappa?, 
+#XXX+TODO: Cohen's d, Fisher's F distribution, "Scala T", scala stein, ¿Cohen's kappa?, 
 #XXX: tss,rs,variance,std,ste: add choice for central point (mean, median or mode) [everywhere a central point calc]
 #XXX+TODO: grouped version of deviation, aad, cv, covariance, correlation_*,  tss 
 
@@ -1295,6 +1292,7 @@ def make_data_intervals_from_freq (data: FrequencyPairs,
 def make_data_freq (data: Sequence[Number, ...]) -> FrequencyPairs:
     """
     Returns a FrequencyPairs from distinct measurements.
+    NOTE: $data is assumed to be sorted.
     >>> make_data_freq([1,2,3,4,5,4,3,4,5,6,7,8])
     [(1, 1), (2, 1), (3, 2), (4, 3), (5, 2), (6, 1), (7, 1), (8, 1)]
     """
@@ -1304,17 +1302,14 @@ def make_data_freq (data: Sequence[Number, ...]) -> FrequencyPairs:
     return FrequencyPairs(freqd.items())
 
 def _median_class_and_cumfreq (data: FrequencyPairs,
-                              percentile: Number = 50,
                                vfunc=lambda x:x) -> Sequence[Any,Number]:
     """
-    Returns the median class and the relative cumulative frequence of $data at the target $percentile (default: 50).
+    Returns the median class and the relative cumulative frequence of $data.
     $data is a FrequencyPairs or compatible object, while $vfunc is a function to be applied to the
     frequency value before the computation of the cumulative frequency (default to the identity function).
     NOTE: test: not considering if observations are even or odd.
     """
-    if (percentile <= 0) or (percentile > 100):
-        raise ValueError(f"wrong percentile value: {percentile}")
-    target_value = sum(vfunc(v) for _, v in data) * percentile / 100
+    target_value = sum(vfunc(v) for _, v in data) / 2
     cumf = 0
     for cls, values in data:
         cumf += vfunc(values)
@@ -1323,40 +1318,36 @@ def _median_class_and_cumfreq (data: FrequencyPairs,
     raise ValueError("median class not found")
 
 def median_class_and_cumfreq (data: FrequencyPairs,
-                              percentile: Number = 50,
                               vfunc=lambda x:x) -> Sequence[Any,Number]:
     """
-    Returns the median class and the relative cumulative frequence of $data at the target $percentile (default: 50).
+    Returns the median class and the relative cumulative frequence of $data.
     $data is a  FrequencyPairs or compatible object, while $vfunc is a function to be applied to the
-    frequency values before the computation of the cumulative frequency (default to the identity function).
-    NOTE: $percentile value limited between 1 and 99 (seems enough).
+    frequency values before the computation of the cumulative frequency (default to the identity function)..
     >>> dm
     [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
     >>> median_class_and_cumfreq(dm)
     (2, 14)
+    >>> fgmedian(dm)
+    2.0
+    >>> freqs_get_class(dm, fgmedian(dm))
+    (2, 7)
     >>> fd
     [('a', 10), ('b', 21), ('c', 20), ('d', 26), ('e', 20), ('f', 4)]
     >>> fgmedian(fd)
     'c'
     >>> median_class_and_cumfreq(fd)
     ('c', 51)
-    >>> median_class_and_cumfreq(fd, percentile=25)
-    ('b', 31)
-    >>> median_class_and_cumfreq(fd, percentile=75)
-    ('d', 77)
     >>> i = IntervalDict([(0,5),(5,10),(10,15)], [1,1,2,4,5,6,9,10,11,13], overlap=True)
     >>> i
     {(0, 5): [1, 1, 2, 4], (5, 10): [5, 6, 9], (10, 15): [10, 11, 13]}
     >>> median_class_and_cumfreq(i.items(), vfunc=lambda x:len(x))
     ((5, 10), 7)
     """
-    if (percentile <= 0) or (percentile >= 100):
-        raise ValueError(f"wrong percentile value: {percentile}")
     tot = sum(vfunc(v) for _, v in data)
     if tot & 1:
-        target_value = tot * percentile / 100
+        target_value = int(tot / 2)
     else:
-        target_value = ((tot * percentile / 100) + (1 + (tot * percentile / 100))) / 2
+        target_value = (int(tot / 2) + (1 + (tot / 2))) / 2
     cumf = 0
     for cls, values in data:
         cumf += vfunc(values)
@@ -1400,6 +1391,8 @@ def fgmean (data: FrequencyPairs) -> Number:
     >>> i
     {(0, 5): [0, 1, 2], (6, 10): []}
     >>> fgmean(freqs_from_intervals(i))
+    2.5
+    >>> gmean(IntervalDict.from_intervals(i.items()))
     2.5
     """
     tval = 0
@@ -1464,26 +1457,22 @@ def gmean (data:IntervalDict|FrequencyPairs) -> Number:
 # grouped median #
 ##################
 
-def fgmedian (data: FrequencyPairs, percentile=50) -> Number:
+def fgmedian (data: FrequencyPairs) -> Number:
     """
-    Returns the median (for grouped data) at the target $percentile (default: 50)
-    from the discrete frequency distribution $data, an already sorted FrequencyPairs-like object.
+    Returns the median (for grouped data) from the discrete frequency distribution $data,
+    an already sorted FrequencyPairs-like object.
     >>> data = [(0, 1), (1, 6), (2, 7), (3, 2), (4, 3), (5, 1)]
     >>> fgmedian(data)
     2.0
-    >>> fgmedian(data, 75)
-    3.0
-    >>> fgmedian(data, 25)
-    1.0
     >>> freqs_get_class(dm, fgmedian(dm))
     (2, 7)
     """
     counter = Counter()
     for c, f in data:
         counter[c] = f
-    return median(list(counter.elements()), percentile)
+    return median(list(counter.elements()))
 
-def igmedian (data: IntervalDict, percentile=50) -> Number:
+def igmedian (data: IntervalDict) -> Number:
     """
     Returns the median of $data (for grouped data).
     >>> i = make_data_intervals_from_freq([(0,3),(5,2),(10,5)], 5, overlap=True)
@@ -1491,8 +1480,6 @@ def igmedian (data: IntervalDict, percentile=50) -> Number:
     {(0, 5): [2.5, 2.5, 2.5], (5, 10): [7.5, 7.5], (10, 15): [12.5, 12.5, 12.5, 12.5, 12.5]}
     >>> igmedian(i)
     10.0
-    >>> igmedian(i, percentile=25)
-    8.333333333333334
     >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
     >>> i
     {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
@@ -1517,12 +1504,10 @@ def igmedian (data: IntervalDict, percentile=50) -> Number:
     {4: 10, 4.5: 18, 5.0: 22, 5.5: 25, 6.0: 40, 6.5: 15, 7.0: 10, 7.5: 8, 8.0: 7}
     >>> igmedian(make_data_intervals_from_freq(d.items(), 0.5, overlap=True))
     6.03125
-    >>> igmedian(make_data_intervals_from_freq(d.items(), 0.5, overlap=True), percentile=75)
-    5.25
     """
     # begin
     observations = data.length
-    median_class, cum_freq = median_class_and_cumfreq(data.items(), percentile, vfunc=lambda x:len(x))
+    median_class, cum_freq = median_class_and_cumfreq(data.items(), vfunc=lambda x:len(x))
     class_freq = len(data.get_values(median_class))
     # get the cumulative freq just before the median class:
     cum_freq = cumulative_freq(data.items(), median_class, cmpfunc=lambda x,y:(x[0]<y,len(x[1])))
@@ -1530,7 +1515,7 @@ def igmedian (data: IntervalDict, percentile=50) -> Number:
     class_size = median_class[1] - median_class[0]
     return lower_class_limit + ( ((observations / 2) - cum_freq) / class_freq ) * class_size
 
-def gmedian (data: IntervalDict|FrequencyPairs, percentile=50):
+def gmedian (data: IntervalDict|FrequencyPairs):
     """
     Returns the median for grouped data.
     $data can be an IntervalDict or a FrequencyPairs object.
@@ -1540,7 +1525,7 @@ def gmedian (data: IntervalDict|FrequencyPairs, percentile=50):
     >>> gmedian(dx)
     Traceback (most recent call last)
     ...
-    TypeError: unknown data type: <class 'list
+    TypeError: unknown data type: <class 'list'>
     >>> gmedian(FrequencyPairs(dx))
     3
     >>> i
@@ -1551,9 +1536,9 @@ def gmedian (data: IntervalDict|FrequencyPairs, percentile=50):
     11.25
     """
     if isinstance(data, IntervalDict):
-        return igmedian(data, percentile)
+        return igmedian(data)
     elif isinstance(data, FrequencyPairs):
-        return fgmedian(data, percentile)
+        return fgmedian(data)
     else:
         raise TypeError(f"unknown data type: {type(data)}")
 
@@ -1578,7 +1563,7 @@ def fgmode (data: Sequence[Sequence[Any,Any], ...]):
     """
     return mad_max(data, key=lambda x:x[1])
 
-def igmode_from_interval (seq, item):
+def igmode_from_interval (seq, item) -> Number:
     """
     Returns the mode of the $seq's $item interval.
     NOTE_1: $seq must have an index() method.
