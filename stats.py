@@ -92,6 +92,409 @@ class IntervalError(Exception):
         return self.msg
 
 
+class FrequencyPairs (Sequence):
+    """Object for frequency pairs."""
+    def __init__ (self, data: Sequence[Sequence[Any,Number], ...] = ()):
+        self._data = []
+        for value, freq in data:
+            self._data.append((value, freq))
+
+    def __str__ (self):
+        return repr(self._data)
+    __repr__ = __str__
+    
+    def __getitem__ (self, value: Number) -> Sequence[Any,Number]:
+        return self._data[value]
+    
+    def __len__ (self) -> Number:
+        return len(self._data)
+
+    def append (self, item):
+        self._data.append(tuple(item))
+
+    def items (self) -> Sequence[Sequence[Any,Number], ...]:
+        """Return a tuple of the items."""
+        return tuple(self._data)
+    # ok: .index, .count (from Sequence)
+    #XXX+TODO: add .insert / extend ??? add __setitem__ / __delitem__ ?
+
+    
+class IntervalDict:
+    """
+    Object for class intervals.
+    """
+    @classmethod
+    def from_intervals (cls,
+                        data: Sequence[Sequence[NumPair, Sequence[Number, ...]], ...],
+                        overlap: bool = False):
+        """
+        Returns a new intervalDict from $data
+        $overlap (default: False) has the same meaning as in __init__ and  autogroup().
+        >>> type(i)
+        (<class '__main__.IntervalDict'>
+        >>> i
+        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]})
+        >>> ii = IntervalDict.from_intervals(i.items())
+        >>> type(ii)
+        (<class '__main__.IntervalDict'>
+        >>> ii
+        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]})
+        """
+        c = cls(overlap=overlap)
+        for pair, seq in data:
+            c.add_interval(tuple(pair), list(seq), update=False)
+        c.update()
+        return c
+
+    def __init__ (self,
+                  intervals: Empty|Sequence[NumPair, ...] = (),
+                  data: None|Empty|Sequence[Number, ...] = None,
+                  trim: bool = False,
+                  overlap: bool = False):
+        """
+        $intervals is a sequence of (min, max) pairs, filled with the optional values from $data.
+        If $trim is True, ignores values from $data which don't fit in the interval, otherwise raises a IntervalError.
+        $overlap (default: False) has the same meaning as in autogroup(), so set it to True
+        when using overlapping intervals.
+        >>> i = IntervalDict([(0,10),(10,20)], range(1,40,3))
+        Traceback (most recent call last)
+        ...
+        IntervalError: value "22" doesn't belong to any interval
+        >>> i = IntervalDict([(0,10),(10,20)], range(1,40,3), trim=True)
+        >>> i
+        {(0, 10): [1, 4, 7, 10], (10, 20): [13, 16, 19]}
+        >>> i
+        {(0, 10): [1, 4, 7, 10, 10], (10, 20): [13, 16, 19]}
+        >>> i = IntervalDict([(0,10),(10,20)], range(1,40,3), trim=True, overlap=True)
+        >>> i
+        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19]}
+        >>> i +=10
+        >>> i
+        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19, 10]}
+        """
+        self._dict = {tuple(i):[] for i in intervals}
+        self._overlap = bool(overlap)
+        if self._overlap is True:
+            self._overlap_cmp = operator.lt
+        else:
+            self._overlap_cmp = operator.le
+        if data:
+            self.extend(data, not bool(trim))     
+        self.update()
+
+    def __delitem__ (self, value: Number) -> None:
+        """
+        Deletes the class interval (and its values) in which $value *may* belong or raises IntervalError.
+        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(5,40,4))
+        >>> i
+        {(0, 11): [5, 9], (11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
+        >>> del i[8] # 8 is not in the (0, 11) interval, but can be. Use remove_interval_by_value for removing
+        >>> ...      #  the interval for existing values only. 
+        >>> i
+        {(11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
+        >>> del i[13]
+        >>> i
+        {(31, 40): [33, 37]}
+        >>> del i[213]
+        Traceback (most recent call last):
+        ...
+        IntervalError: value '213' not in intervals
+        """
+        for (imin, imax), _ in self._dict.items():
+            if value >= imin and self._overlap_cmp(value, imax):
+                break
+        else:
+            raise IntervalError(f"value '{value}' not in intervals")
+        del self._dict[(imin, imax)]
+
+    def __getitem__ (self, value: Number) -> Sequence[NumPair, Sequence[Number,...]]:
+        """
+        Returns the interval's class and values in which $value *may* belong or raises IntervalError.
+        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(0,40,4))
+        >>> i
+        {(0, 11): [0, 4, 8], (11, 30): [12, 16, 20, 24, 28], (31, 40): [32, 36]}
+        >>> i[7] # 7 is not in the interval's values, but can be. Use get_interval to get the interval for existing values only.
+        ((0, 11), (0, 4, 8))
+        >>> i[16]
+        ((11, 30), (12, 16, 20, 24, 28))
+        >>> i[99]
+        Traceback (most recent call last):
+        ...
+        IntervalError: value '99' not in intervals
+        """
+        for (imin, imax), seq in self._dict.items():
+            if value >= imin and self._overlap_cmp(value, imax):
+                return (imin, imax), tuple(seq)
+        raise IntervalError(f"value '{value}' not in intervals")
+
+    def __iadd__ (self, value: Number):
+        """
+        Adds $value to it's belonging interval or raises IntervalError.
+        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 4))
+        >>> i
+        {(0, 10): [0, 4, 8], (11, 20): [12, 16]}
+        >>> for n in range(5): i += n
+        ... 
+        >>> i
+        {(0, 10): [0, 4, 8, 0, 1, 2, 3, 4], (11, 20): [12, 16]}
+        >>> i += 99
+        Traceback (most recent call last):
+        ...
+        IntervalError: value "99" doesn't belong to any interval
+        """
+        for (imin, imax), _ in self._dict.items():
+            if value >= imin and self._overlap_cmp(value, imax):
+                self._dict[(imin, imax)].append(value)
+                return self
+        raise IntervalError(f'''value "{value}" doesn't belong to any interval''')
+
+    def __iter__ (self):
+        """NotImplemented"""
+        raise NotImplementedError(f"{self.__class__.__name__} {inspect.getframeinfo(inspect.currentframe()).function}")
+
+    def __len__ (self) -> Number:
+        """Returns the number of intervals."""
+        return len(self._dict)
+
+    def __repr__ (self):
+        return repr(self._dict)
+    __str__ = __repr__
+
+    def add_interval (self,
+                      interval: NumPair,
+                      values: Sequence[Number, ...],
+                      update=True) -> None:
+        """
+        Adds an $interval and the corresponding $values.
+        Set $update to False to avoid rebuilding the underlying dict (e.g. in case of multiple calls of this method
+        without operations on the values in between).
+        NOTE: this causes the rebuild of the underlying dictionary.
+        Raises IntervalError is $interval is already present.
+        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
+        >>> i
+        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
+        >>> i.add_interval((0,10), range(9))
+        Traceback (most recent call last):
+        ....
+        IntervalError: interval (0, 10) already present
+        >>> i.add_interval((10,20), range(9))
+        >>> i
+        {(0, 10): [0, 3, 6, 9], (10, 20): [0, 1, 2, 3, 4, 5, 6, 7, 8], (11, 20): [12, 15, 18]}
+        >>> # Note as at this time there aren't checks for inconsistent data, left to the user's responsibility
+        """
+        if tuple(interval) in self._dict.keys():
+            raise IntervalError(f'interval {interval} already present')
+        self._dict[tuple(interval)] = list(values)
+        if update:
+            self.update()
+
+    def empty_interval (self, interval: NumPair):
+        """
+        Removes all the values from $Interval. Raises IntervalError if $interval doesn't exist.
+        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
+        >>> i
+        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
+        >>> i.empty_interval((0,5))
+        Traceback (most recent call last):
+        ...
+        IntervalError: Interval (0, 5) not found
+        >>> i
+        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
+        >>> i.empty_interval((0,10))
+        >>> i
+        {(0, 10): [], (11, 20): [12, 15, 18]}
+        """
+        target = tuple(interval)
+        if target not in self._dict.keys():
+            raise IntervalError(f"Interval {interval} not found")
+        self._dict[target] = []
+
+    def extend (self,
+                seq: Empty|Sequence[Number, ...],
+                err: bool = True) -> None:
+        """
+        Adds $seq's values to their belonging intervals.
+        If $err is True (the default) raises a IntervalError for values which don't fit in any interval;
+        in this case the values ​​just entered will be removed, otherwise only the valid values
+        ​​will be entered, ignoring the incorrect ones.
+        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 4))
+        >>> i
+        {(0, 10): [0, 4, 8], (11, 20): [12, 16]}
+        >>> i.extend(range(5))
+        >>> i
+        {(0, 10): [0, 4, 8, 0, 1, 2, 3, 4], (11, 20): [12, 16]}
+        >>> i.extend(range(15,25))
+        Traceback (most recent call last):
+        ...
+        IntervalError: value "21" doesn't belong to any interval
+        >>> i
+        {(0, 10): [0, 4, 8, 0, 1, 2, 3, 4], (11, 20): [12, 16]}
+        >>> i.extend(range(15,25), err=False)
+        >>> i
+        {(0, 10): [0, 4, 8, 0, 1, 2, 3, 4], (11, 20): [12, 16, 15, 16, 17, 18, 19, 20]
+        """
+        todel = []
+        for item in seq:
+            try:
+                self += item
+                todel.append(item)
+            except IntervalError as e:
+                if err:
+                    for value in todel:
+                        self.remove_value(value)
+                    raise e
+
+    def get_interval (self, value: Number) -> NumPair:
+        """
+        Returns the class interval in which $value belong or raises IntervalError.
+        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(5,40,4))
+        >>> i
+        {(0, 11): [5, 9], (11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
+        >>> i.get_interval(17)
+        (11, 30)
+        >>> i.get_interval(7)
+        Traceback (most recent call last):
+        ...
+        IntervalError: value '7' not in interval
+        """
+        for cls, seq in self._dict.items():
+            if value in seq:
+                return cls
+        raise IntervalError(f"value '{value}' not in intervals")
+
+    def get_values (self, cls: NumPair) -> Sequence[Number,...]:
+        """
+        Returns the values belonging to the class interval $cls or raises IntervalError.
+        >>> i = IntervalDict(((0,10),(11,30)), range(5,40,4), True)
+        >>> i
+        {(0, 10): [5, 9], (11, 30): [13, 17, 21, 25, 29]}
+        >>> i.get_values((0,9))
+        Traceback (most recent call last):
+        ...
+        IntervalError: class '(0, 9)' not found
+        >>> i.get_interval(5)
+        (0, 10)
+        >>> i.get_values(i.get_interval(5))
+        (5, 9)
+        """
+        target = tuple(cls)
+        for interval, seq in self._dict.items():
+            if tuple(interval) == target:
+                return tuple(seq)
+        raise IntervalError(f"class '{cls}' not found")
+
+    @property
+    def intervals (self) -> Sequence[NumPair, ...]:
+        """The class intervals."""
+        return tuple(self._dict.keys())
+
+    def items (self) -> ItemsView:
+        """Returns a new view of the underling dictionary's items."""
+        return self._dict.items()
+
+    @property
+    def length (self) -> Number:
+        """The number of values in all the intervals."""
+        return sum(len(v) for v in self._dict.values())
+
+    @property
+    def overlap (self) -> bool:
+        """A bool, if the IntervalDict is an overlapping ones or not."""
+        return self._overlap
+
+    def remove_interval (self, interval: NumPair) -> None:
+        """
+        Removes $interval and its values or raises IntervalError.
+        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
+        >>> i
+        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
+        >>> i.remove_interval((11,21))
+        Traceback (most recent call last):
+        ...
+        IntervalError: interval (11, 21) not found
+        >>> i
+        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
+        >>> i.remove_interval([11,20])
+        >>> i
+        {(0, 10): [0, 3, 6, 9]}
+        """
+        target = tuple(interval)
+        for cls in self._dict.keys():
+            if tuple(cls) == target:
+                del self._dict[cls]
+                return
+        raise IntervalError(f"interval {interval} not found")
+            
+    def remove_interval_by_value (self, value: Number) -> None:
+        """
+        Removes the (first, obviously) interval in which $value belong or raises IntervalError.
+        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(5,40,4))
+        >>> i
+        {(0, 11): [5, 9], (11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
+        >>> i.remove_interval_by_value(8)
+        Traceback (most recent call last):
+        ...
+        IntervalError: value 8 not in intervals
+        >>> i
+        {(0, 11): [5, 9], (11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
+        >>> i.remove_interval_by_value(9)
+        >>> i
+        {(11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
+        """
+        for cls, seq in self._dict.items():
+            if value in seq:
+                del self._dict[cls]
+                return
+        raise IntervalError(f"value {value} not in intervals")
+        
+    def remove_value (self, value: Number,
+                      all: bool = False) -> None:
+        """
+        Removes the first occurrence of $value from its interval.
+        If $all is True, remove all the occurrences.
+        Raises IntervalError if $value is not present.
+        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
+        >>> i.remove_value(5)
+        Traceback (most recent call last):
+        ...
+        IntervalError: value '5' not in intervals
+        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
+        >>> i
+        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
+        >>> for _ in range(3): i += 4
+        ... 
+        >>> i
+        {(0, 10): [0, 3, 6, 9, 4, 4, 4], (11, 20): [12, 15, 18]}
+        >>> i.remove_value(4)
+        >>> i
+        {(0, 10): [0, 3, 6, 9, 4, 4], (11, 20): [12, 15, 18]}
+        >>> i.remove_value(4, all=True)
+        >>> i
+        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
+        >>> i.remove_value(4)
+        Traceback (most recent call last):
+        ...
+        IntervalError: value '4' not in intervals
+        """
+        for (imin, imax), seq in self._dict.items():
+            if value >= imin and value <= imax:
+                try:
+                    seq.remove(value)
+                except ValueError as e:
+                    raise IntervalError(f"value '{value}' not in intervals") from None
+                if all:
+                    while value in seq:
+                        seq.remove(value)
+                return
+        raise IntervalError(f"value '{value}' not in intervals")
+
+    def update (self) -> None:
+        """
+        Rebuilds the underlying dict to preserve sort order.
+        """
+        self._dict = dict(sorted(self._dict.items()))
+
+
 ###############
 # general use #
 ###############
@@ -537,6 +940,14 @@ def rs_simple (
     return 1 - ((6 * dsum) / (n * (n**2 - 1)))
 
 
+def rtt (data: Sequence[Number, ...]|FrequencyPairs|IntervalDict,
+         fromsample=True) -> Number:
+    """reliability coefficient.""" #  (attendibilità)
+    if isinstance(data, (FrequencyPairs, IntervalDict)):
+        return 1 - (gstandard_error(data, fromsample)**2 / gvariance(data, fromsample))
+    return 1 - (standard_error(data, fromsample)**2 / variance(data, fromsample))
+
+    
 def _standard_dev (mean, data, fromsample):
     return math.sqrt(_variance(mean, data, fromsample))
 
@@ -746,408 +1157,6 @@ def autogroup (chunks: Number,
             classes.append((minvalue, minvalue + nc))
             minvalue += nc + overlap
     return classes
-
-class FrequencyPairs (Sequence):
-    """Object for frequency pairs."""
-    def __init__ (self, data: Sequence[Sequence[Any,Number], ...] = ()):
-        self._data = []
-        for value, freq in data:
-            self._data.append((value, freq))
-
-    def __str__ (self):
-        return repr(self._data)
-    __repr__ = __str__
-    
-    def __getitem__ (self, value: Number) -> Sequence[Any,Number]:
-        return self._data[value]
-    
-    def __len__ (self) -> Number:
-        return len(self._data)
-
-    def append (self, item):
-        self._data.append(tuple(item))
-
-    def items (self) -> Sequence[Sequence[Any,Number], ...]:
-        """Return a tuple of the items."""
-        return tuple(self._data)
-    # ok: .index, .count (from Sequence)
-    #XXX+TODO: add .insert / extend ??? add __setitem__ / __delitem__ ?
-
-    
-class IntervalDict:
-    """
-    Object for class intervals.
-    """
-    @classmethod
-    def from_intervals (cls,
-                        data: Sequence[Sequence[NumPair, Sequence[Number, ...]], ...],
-                        overlap: bool = False):
-        """
-        Returns a new intervalDict from $data
-        $overlap (default: False) has the same meaning as in __init__ and  autogroup().
-        >>> type(i)
-        (<class '__main__.IntervalDict'>
-        >>> i
-        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]})
-        >>> ii = IntervalDict.from_intervals(i.items())
-        >>> type(ii)
-        (<class '__main__.IntervalDict'>
-        >>> ii
-        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19], (20, 30): [22, 25, 28], (30, 40): [31, 34, 37]})
-        """
-        c = cls(overlap=overlap)
-        for pair, seq in data:
-            c.add_interval(tuple(pair), list(seq), update=False)
-        c.update()
-        return c
-
-    def __init__ (self,
-                  intervals: Empty|Sequence[NumPair, ...] = (),
-                  data: None|Empty|Sequence[Number, ...] = None,
-                  trim: bool = False,
-                  overlap: bool = False):
-        """
-        $intervals is a sequence of (min, max) pairs, filled with the optional values from $data.
-        If $trim is True, ignores values from $data which don't fit in the interval, otherwise raises a IntervalError.
-        $overlap (default: False) has the same meaning as in autogroup(), so set it to True
-        when using overlapping intervals.
-        >>> i = IntervalDict([(0,10),(10,20)], range(1,40,3))
-        Traceback (most recent call last)
-        ...
-        IntervalError: value "22" doesn't belong to any interval
-        >>> i = IntervalDict([(0,10),(10,20)], range(1,40,3), trim=True)
-        >>> i
-        {(0, 10): [1, 4, 7, 10], (10, 20): [13, 16, 19]}
-        >>> i
-        {(0, 10): [1, 4, 7, 10, 10], (10, 20): [13, 16, 19]}
-        >>> i = IntervalDict([(0,10),(10,20)], range(1,40,3), trim=True, overlap=True)
-        >>> i
-        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19]}
-        >>> i +=10
-        >>> i
-        {(0, 10): [1, 4, 7], (10, 20): [10, 13, 16, 19, 10]}
-        """
-        self._dict = {tuple(i):[] for i in intervals}
-        self._overlap = bool(overlap)
-        if self._overlap is True:
-            self._overlap_cmp = operator.lt
-        else:
-            self._overlap_cmp = operator.le
-        if data:
-            self.extend(data, not bool(trim))     
-        self.update()
-
-    def __delitem__ (self, value: Number) -> None:
-        """
-        Deletes the class interval (and its values) in which $value *may* belong or raises IntervalError.
-        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(5,40,4))
-        >>> i
-        {(0, 11): [5, 9], (11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
-        >>> del i[8] # 8 is not in the (0, 11) interval, but can be. Use remove_interval_by_value for removing
-        >>> ...      #  the interval for existing values only. 
-        >>> i
-        {(11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
-        >>> del i[13]
-        >>> i
-        {(31, 40): [33, 37]}
-        >>> del i[213]
-        Traceback (most recent call last):
-        ...
-        IntervalError: value '213' not in intervals
-        """
-        for (imin, imax), _ in self._dict.items():
-            if value >= imin and self._overlap_cmp(value, imax):
-                break
-        else:
-            raise IntervalError(f"value '{value}' not in intervals")
-        del self._dict[(imin, imax)]
-
-    def __getitem__ (self, value: Number) -> Sequence[NumPair, Sequence[Number,...]]:
-        """
-        Returns the interval's class and values in which $value *may* belong or raises IntervalError.
-        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(0,40,4))
-        >>> i
-        {(0, 11): [0, 4, 8], (11, 30): [12, 16, 20, 24, 28], (31, 40): [32, 36]}
-        >>> i[7] # 7 is not in the interval's values, but can be. Use get_interval to get the interval for existing values only.
-        ((0, 11), (0, 4, 8))
-        >>> i[16]
-        ((11, 30), (12, 16, 20, 24, 28))
-        >>> i[99]
-        Traceback (most recent call last):
-        ...
-        IntervalError: value '99' not in intervals
-        """
-        for (imin, imax), seq in self._dict.items():
-            if value >= imin and self._overlap_cmp(value, imax):
-                return (imin, imax), tuple(seq)
-        raise IntervalError(f"value '{value}' not in intervals")
-
-    def __iadd__ (self, value: Number):
-        """
-        Adds $value to it's belonging interval or raises IntervalError.
-        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 4))
-        >>> i
-        {(0, 10): [0, 4, 8], (11, 20): [12, 16]}
-        >>> for n in range(5): i += n
-        ... 
-        >>> i
-        {(0, 10): [0, 4, 8, 0, 1, 2, 3, 4], (11, 20): [12, 16]}
-        >>> i += 99
-        Traceback (most recent call last):
-        ...
-        IntervalError: value "99" doesn't belong to any interval
-        """
-        for (imin, imax), _ in self._dict.items():
-            if value >= imin and self._overlap_cmp(value, imax):
-                self._dict[(imin, imax)].append(value)
-                return self
-        raise IntervalError(f'''value "{value}" doesn't belong to any interval''')
-
-    def __iter__ (self):
-        """NotImplemented"""
-        raise NotImplementedError(f"{self.__class__.__name__} {inspect.getframeinfo(inspect.currentframe()).function}")
-
-    def __len__ (self) -> Number:
-        """Returns the number of intervals."""
-        return len(self._dict)
-
-    def __repr__ (self):
-        return repr(self._dict)
-    __str__ = __repr__
-
-    def add_interval (self,
-                      interval: NumPair,
-                      values: Sequence[Number, ...],
-                      update=True) -> None:
-        """
-        Adds an $interval and the corresponding $values.
-        Set $update to False to avoid rebuilding the underlying dict (e.g. in case of multiple calls of this method
-        without operations on the values in between).
-        NOTE: this causes the rebuild of the underlying dictionary.
-        Raises IntervalError is $interval is already present.
-        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
-        >>> i
-        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
-        >>> i.add_interval((0,10), range(9))
-        Traceback (most recent call last):
-        ....
-        IntervalError: interval (0, 10) already present
-        >>> i.add_interval((10,20), range(9))
-        >>> i
-        {(0, 10): [0, 3, 6, 9], (10, 20): [0, 1, 2, 3, 4, 5, 6, 7, 8], (11, 20): [12, 15, 18]}
-        >>> # Note as at this time there aren't checks for inconsistent data, left to the user's responsibility
-        """
-        if tuple(interval) in self._dict.keys():
-            raise IntervalError(f'interval {interval} already present')
-        self._dict[tuple(interval)] = list(values)
-        if update:
-            self.update()
-
-    def empty_interval (self, interval: NumPair):
-        """
-        Removes all the values from $Interval. Raises IntervalError if $interval doesn't exist.
-        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
-        >>> i
-        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
-        >>> i.empty_interval((0,5))
-        Traceback (most recent call last):
-        ...
-        IntervalError: Interval (0, 5) not found
-        >>> i
-        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
-        >>> i.empty_interval((0,10))
-        >>> i
-        {(0, 10): [], (11, 20): [12, 15, 18]}
-        """
-        target = tuple(interval)
-        if target not in self._dict.keys():
-            raise IntervalError(f"Interval {interval} not found")
-        self._dict[target] = []
-
-    def extend (self,
-                seq: Empty|Sequence[Number, ...],
-                err: bool = True) -> None:
-        """
-        Adds $seq's values to their belonging intervals.
-        If $err is True (the default) raises a IntervalError for values which don't fit in any interval;
-        in this case the values ​​just entered will be removed, otherwise only the valid values
-        ​​will be entered, ignoring the incorrect ones.
-        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 4))
-        >>> i
-        {(0, 10): [0, 4, 8], (11, 20): [12, 16]}
-        >>> i.extend(range(5))
-        >>> i
-        {(0, 10): [0, 4, 8, 0, 1, 2, 3, 4], (11, 20): [12, 16]}
-        >>> i.extend(range(15,25))
-        Traceback (most recent call last):
-        ...
-        IntervalError: value "21" doesn't belong to any interval
-        >>> i
-        {(0, 10): [0, 4, 8, 0, 1, 2, 3, 4], (11, 20): [12, 16]}
-        >>> i.extend(range(15,25), err=False)
-        >>> i
-        {(0, 10): [0, 4, 8, 0, 1, 2, 3, 4], (11, 20): [12, 16, 15, 16, 17, 18, 19, 20]
-        """
-        todel = []
-        for item in seq:
-            try:
-                self += item
-                todel.append(item)
-            except IntervalError as e:
-                if err:
-                    for value in todel:
-                        self.remove_value(value)
-                    raise e
-
-    def get_interval (self, value: Number) -> NumPair:
-        """
-        Returns the class interval in which $value belong or raises IntervalError.
-        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(5,40,4))
-        >>> i
-        {(0, 11): [5, 9], (11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
-        >>> i.get_interval(17)
-        (11, 30)
-        >>> i.get_interval(7)
-        Traceback (most recent call last):
-        ...
-        IntervalError: value '7' not in interval
-        """
-        for cls, seq in self._dict.items():
-            if value in seq:
-                return cls
-        raise IntervalError(f"value '{value}' not in intervals")
-
-    def get_values (self, cls: NumPair) -> Sequence[Number,...]:
-        """
-        Returns the values belonging to the class interval $cls or raises IntervalError.
-        >>> i = IntervalDict(((0,10),(11,30)), range(5,40,4), True)
-        >>> i
-        {(0, 10): [5, 9], (11, 30): [13, 17, 21, 25, 29]}
-        >>> i.get_values((0,9))
-        Traceback (most recent call last):
-        ...
-        IntervalError: class '(0, 9)' not found
-        >>> i.get_interval(5)
-        (0, 10)
-        >>> i.get_values(i.get_interval(5))
-        (5, 9)
-        """
-        target = tuple(cls)
-        for interval, seq in self._dict.items():
-            if tuple(interval) == target:
-                return tuple(seq)
-        raise IntervalError(f"class '{cls}' not found")
-
-    @property
-    def intervals (self) -> Sequence[NumPair, ...]:
-        """The class intervals."""
-        return tuple(self._dict.keys())
-
-    def items (self) -> ItemsView:
-        """Returns a new view of the underling dictionary's items."""
-        return self._dict.items()
-
-    @property
-    def length (self) -> Number:
-        """The number of values in all the intervals."""
-        return sum(len(v) for v in self._dict.values())
-
-    @property
-    def overlap (self) -> bool:
-        """A bool, if the IntervalDict is an overlapping ones or not."""
-        return self._overlap
-
-    def remove_interval (self, interval: NumPair) -> None:
-        """
-        Removes $interval and its values or raises IntervalError.
-        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
-        >>> i
-        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
-        >>> i.remove_interval((11,21))
-        Traceback (most recent call last):
-        ...
-        IntervalError: interval (11, 21) not found
-        >>> i
-        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
-        >>> i.remove_interval([11,20])
-        >>> i
-        {(0, 10): [0, 3, 6, 9]}
-        """
-        target = tuple(interval)
-        for cls in self._dict.keys():
-            if tuple(cls) == target:
-                del self._dict[cls]
-                return
-        raise IntervalError(f"interval {interval} not found")
-            
-    def remove_interval_by_value (self, value: Number) -> None:
-        """
-        Removes the (first, obviously) interval in which $value belong or raises IntervalError.
-        >>> i = IntervalDict(((0,11),(11,30),(31,40)), range(5,40,4))
-        >>> i
-        {(0, 11): [5, 9], (11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
-        >>> i.remove_interval_by_value(8)
-        Traceback (most recent call last):
-        ...
-        IntervalError: value 8 not in intervals
-        >>> i
-        {(0, 11): [5, 9], (11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
-        >>> i.remove_interval_by_value(9)
-        >>> i
-        {(11, 30): [13, 17, 21, 25, 29], (31, 40): [33, 37]}
-        """
-        for cls, seq in self._dict.items():
-            if value in seq:
-                del self._dict[cls]
-                return
-        raise IntervalError(f"value {value} not in intervals")
-        
-    def remove_value (self, value: Number,
-                      all: bool = False) -> None:
-        """
-        Removes the first occurrence of $value from its interval.
-        If $all is True, remove all the occurrences.
-        Raises IntervalError if $value is not present.
-        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
-        >>> i.remove_value(5)
-        Traceback (most recent call last):
-        ...
-        IntervalError: value '5' not in intervals
-        >>> i = IntervalDict(((0,10),(11,20)), range(0, 20, 3))
-        >>> i
-        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
-        >>> for _ in range(3): i += 4
-        ... 
-        >>> i
-        {(0, 10): [0, 3, 6, 9, 4, 4, 4], (11, 20): [12, 15, 18]}
-        >>> i.remove_value(4)
-        >>> i
-        {(0, 10): [0, 3, 6, 9, 4, 4], (11, 20): [12, 15, 18]}
-        >>> i.remove_value(4, all=True)
-        >>> i
-        {(0, 10): [0, 3, 6, 9], (11, 20): [12, 15, 18]}
-        >>> i.remove_value(4)
-        Traceback (most recent call last):
-        ...
-        IntervalError: value '4' not in intervals
-        """
-        for (imin, imax), seq in self._dict.items():
-            if value >= imin and value <= imax:
-                try:
-                    seq.remove(value)
-                except ValueError as e:
-                    raise IntervalError(f"value '{value}' not in intervals") from None
-                if all:
-                    while value in seq:
-                        seq.remove(value)
-                return
-        raise IntervalError(f"value '{value}' not in intervals")
-
-    def update (self) -> None:
-        """
-        Rebuilds the underlying dict to preserve sort order.
-        """
-        self._dict = dict(sorted(self._dict.items()))
 
 
 def cumulative_freq (data: Sequence,
